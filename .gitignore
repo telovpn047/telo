@@ -1,0 +1,24 @@
+# Xray binaries — downloaded by CI, not committed
+telovpn/android/app/src/main/assets/xray/xray_arm64
+telovpn/android/app/src/main/assets/xray/xray_arm
+telovpn/android/app/src/main/assets/xray/xray_x64
+telovpn/android/app/src/main/assets/xray/geoip.dat
+telovpn/android/app/src/main/assets/xray/geosite.dat
+
+# Flutter build outputs
+telovpn/build/
+telovpn/.dart_tool/
+telovpn/.flutter-plugins
+telovpn/.flutter-plugins-dependencies
+telovpn/pubspec.lock
+
+# Android local files
+telovpn/android/local.properties
+telovpn/android/.gradle/
+telovpn/android/app/debug/
+telovpn/android/app/release/
+
+# IDE
+.idea/
+*.iml
+.vscode/
