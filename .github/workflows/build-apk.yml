@@ -41,20 +41,29 @@ jobs:
 
       - name: Download Xray Core binaries
         run: |
-          XRAY_VERSION=$(curl -fsSL https://api.github.com/repos/XTLS/Xray-core/releases/latest | jq -r '.tag_name')
-          echo "Downloading Xray Core ${XRAY_VERSION}"
+          RELEASE=$(curl -fsSL https://api.github.com/repos/XTLS/Xray-core/releases/latest)
+          XRAY_VERSION=$(echo "$RELEASE" | jq -r '.tag_name')
+          echo "Xray Core: ${XRAY_VERSION}"
+          echo "Available assets:"
+          echo "$RELEASE" | jq -r '.assets[].name'
 
-          curl -fL "https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-android-arm64-v8a.zip" -o /tmp/arm64.zip
-          unzip -p /tmp/arm64.zip xray > telovpn/android/app/src/main/assets/xray/xray_arm64
+          BASE="https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}"
+          ADIR="telovpn/android/app/src/main/assets/xray"
 
-          curl -fL "https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-android-arm32-v7a.zip" -o /tmp/arm.zip
-          unzip -p /tmp/arm.zip xray > telovpn/android/app/src/main/assets/xray/xray_arm
+          # arm64-v8a (required — fails build if missing)
+          curl -fL "${BASE}/Xray-android-arm64-v8a.zip" -o /tmp/arm64.zip
+          unzip -p /tmp/arm64.zip xray > "${ADIR}/xray_arm64"
 
-          curl -fL "https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-android-x86_64.zip" -o /tmp/x64.zip
-          unzip -p /tmp/x64.zip xray > telovpn/android/app/src/main/assets/xray/xray_x64
+          # x86_64 (optional — emulator/testing only; falls back to arm64)
+          if curl -fL "${BASE}/Xray-android-x86_64.zip" -o /tmp/x64.zip 2>/dev/null; then
+            unzip -p /tmp/x64.zip xray > "${ADIR}/xray_x64"
+          else
+            echo "x86_64 not available, copying arm64"
+            cp "${ADIR}/xray_arm64" "${ADIR}/xray_x64"
+          fi
 
-          chmod +x telovpn/android/app/src/main/assets/xray/xray_*
-          ls -lh telovpn/android/app/src/main/assets/xray/
+          chmod +x "${ADIR}"/xray_*
+          ls -lh "${ADIR}"/
 
       - name: Download GeoData
         run: |
@@ -86,13 +95,6 @@ jobs:
         with:
           name: telovpn-arm64-release
           path: telovpn/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
-          if-no-files-found: error
-
-      - name: Upload armeabi-v7a APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: telovpn-armeabi-release
-          path: telovpn/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
           if-no-files-found: error
 
       - name: Upload x86_64 APK
