@@ -59,6 +59,19 @@ class _ServersScreenState extends State<ServersScreen>
               onPressed: vpn.isPinging ? null : () => vpn.pingAllServers(),
             ),
           ),
+          Consumer<VpnProvider>(
+            builder: (ctx, vpn, _) => IconButton(
+              icon: vpn.isRefreshingSubscriptions
+                  ? SizedBox(
+                      width: 20, height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primaryBlue))
+                  : const Icon(Icons.subscriptions_outlined),
+              tooltip: 'Abuna',
+              onPressed: vpn.isRefreshingSubscriptions
+                  ? null
+                  : () => _showSubscriptionSheet(context),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.qr_code_scanner_rounded),
             tooltip: 'QR Skan',
@@ -140,6 +153,167 @@ class _ServersScreenState extends State<ServersScreen>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showSubscriptionSheet(BuildContext context) {
+    final urlCtrl = TextEditingController();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).brightness == Brightness.dark
+          ? AppTheme.darkSurface
+          : AppTheme.lightSurface,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setState) {
+          final vpn = Provider.of<VpnProvider>(ctx);
+          return Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(ctx).viewInsets.bottom,
+              left: 20, right: 20, top: 20,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40, height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade400,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    Text('Abuna', style: Theme.of(ctx).textTheme.headlineSmall),
+                    const Spacer(),
+                    if (vpn.subscriptionUrls.isNotEmpty)
+                      TextButton.icon(
+                        icon: const Icon(Icons.refresh_rounded, size: 16),
+                        label: const Text('Täzele'),
+                        onPressed: vpn.isRefreshingSubscriptions
+                            ? null
+                            : () => vpn.refreshAllSubscriptions(),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text('http:// ýa-da https:// abuna URL goşuň',
+                    style: Theme.of(ctx).textTheme.bodySmall),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: urlCtrl,
+                        keyboardType: TextInputType.url,
+                        style: const TextStyle(fontSize: 13),
+                        decoration: InputDecoration(
+                          hintText: 'https://example.com/sub',
+                          filled: true,
+                          fillColor: Theme.of(ctx).brightness == Brightness.dark
+                              ? AppTheme.darkCard
+                              : AppTheme.lightCard,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.primaryBlue,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      onPressed: () async {
+                        final url = urlCtrl.text.trim();
+                        if (url.isEmpty) return;
+                        Navigator.pop(ctx);
+                        final error = await Provider.of<VpnProvider>(context, listen: false)
+                            .addSubscriptionFromUrl(url);
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                            content: Text(error ?? 'Abuna goşuldy!'),
+                            backgroundColor: error == null
+                                ? AppTheme.connected
+                                : AppTheme.disconnected,
+                          ));
+                        }
+                      },
+                      child: const Text('Goş'),
+                    ),
+                  ],
+                ),
+                if (vpn.subscriptionUrls.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  Text('Abunalar', style: Theme.of(ctx).textTheme.titleSmall?.copyWith(
+                    color: AppTheme.primaryBlue, fontWeight: FontWeight.w700,
+                  )),
+                  const SizedBox(height: 8),
+                  ...vpn.subscriptionUrls.map((url) => Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Theme.of(ctx).brightness == Brightness.dark
+                          ? AppTheme.darkCard
+                          : AppTheme.lightCard,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.link_rounded, size: 16, color: AppTheme.primaryBlue),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(url,
+                              style: const TextStyle(fontSize: 11),
+                              overflow: TextOverflow.ellipsis),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.refresh_rounded, size: 16),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                          onPressed: () async {
+                            Navigator.pop(ctx);
+                            final err = await Provider.of<VpnProvider>(context, listen: false)
+                                .refreshSubscription(url);
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                                content: Text(err ?? 'Täzelendi!'),
+                                backgroundColor: err == null
+                                    ? AppTheme.connected
+                                    : AppTheme.disconnected,
+                              ));
+                            }
+                          },
+                        ),
+                        IconButton(
+                          icon: Icon(Icons.delete_outline_rounded, size: 16, color: AppTheme.disconnected),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                          onPressed: () {
+                            Provider.of<VpnProvider>(ctx, listen: false).removeSubscription(url);
+                          },
+                        ),
+                      ],
+                    ),
+                  )),
+                ],
+                const SizedBox(height: 20),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
@@ -320,7 +494,8 @@ class _ServerTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final isCustom = server.id.startsWith('custom_');
+    final isCustom = server.isCustom;
+    final isSub = server.isFromSubscription;
 
     return Consumer<VpnProvider>(
       builder: (context, vpn, _) {
@@ -337,7 +512,7 @@ class _ServerTile extends StatelessWidget {
 
     return Dismissible(
       key: Key(server.id),
-      direction: isCustom
+      direction: (isCustom || isSub)
           ? DismissDirection.endToStart
           : DismissDirection.none,
       background: Container(
@@ -409,6 +584,16 @@ class _ServerTile extends StatelessWidget {
                                 ),
                                 child: Text('EN GYZ', style: TextStyle(fontSize: 8, color: AppTheme.connected, fontWeight: FontWeight.w800)),
                               ),
+                            ] else if (isSub) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.primaryBlue.withOpacity(0.15),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text('Abuna', style: TextStyle(fontSize: 8, color: AppTheme.primaryBlue, fontWeight: FontWeight.w700)),
+                              ),
                             ] else if (isCustom) ...[
                               const SizedBox(width: 6),
                               Container(
@@ -417,7 +602,7 @@ class _ServerTile extends StatelessWidget {
                                   color: AppTheme.connecting.withOpacity(0.15),
                                   borderRadius: BorderRadius.circular(4),
                                 ),
-                                child: Text('Oz', style: TextStyle(fontSize: 9, color: AppTheme.connecting, fontWeight: FontWeight.w700)),
+                                child: Text('Öz', style: TextStyle(fontSize: 9, color: AppTheme.connecting, fontWeight: FontWeight.w700)),
                               ),
                             ],
                           ],

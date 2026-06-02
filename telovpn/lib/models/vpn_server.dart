@@ -13,6 +13,7 @@ class VpnServer {
   final bool isFavorite;
   final int ping;
   final double load;
+  final String? subscriptionUrl;
 
   VpnServer({
     required this.id,
@@ -29,13 +30,14 @@ class VpnServer {
     this.isFavorite = false,
     this.ping = 0,
     this.load = 0.0,
+    this.subscriptionUrl,
   });
 
   VpnServer copyWith({
     String? id, String? name, String? country, String? countryCode,
     String? flagEmoji, String? address, int? port, String? protocol,
     String? uuid, String? path, String? configUri, bool? isFavorite,
-    int? ping, double? load,
+    int? ping, double? load, String? subscriptionUrl,
   }) {
     return VpnServer(
       id: id ?? this.id, name: name ?? this.name, country: country ?? this.country,
@@ -43,14 +45,18 @@ class VpnServer {
       address: address ?? this.address, port: port ?? this.port, protocol: protocol ?? this.protocol,
       uuid: uuid ?? this.uuid, path: path ?? this.path, configUri: configUri ?? this.configUri,
       isFavorite: isFavorite ?? this.isFavorite, ping: ping ?? this.ping, load: load ?? this.load,
+      subscriptionUrl: subscriptionUrl ?? this.subscriptionUrl,
     );
   }
+
+  bool get isCustom => id.startsWith('custom_');
+  bool get isFromSubscription => id.startsWith('sub_');
 
   Map<String, dynamic> toJson() => {
     'id': id, 'name': name, 'country': country, 'countryCode': countryCode,
     'flagEmoji': flagEmoji, 'address': address, 'port': port, 'protocol': protocol,
     'uuid': uuid, 'path': path, 'configUri': configUri, 'isFavorite': isFavorite,
-    'ping': ping, 'load': load,
+    'ping': ping, 'load': load, 'subscriptionUrl': subscriptionUrl,
   };
 
   factory VpnServer.fromJson(Map<String, dynamic> json) => VpnServer(
@@ -60,6 +66,7 @@ class VpnServer {
     uuid: json['uuid'], path: json['path'], configUri: json['configUri'],
     isFavorite: json['isFavorite'] ?? false,
     ping: json['ping'] ?? 0, load: (json['load'] ?? 0.0).toDouble(),
+    subscriptionUrl: json['subscriptionUrl'],
   );
 
   String get pingLabel {

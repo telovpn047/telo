@@ -434,6 +434,57 @@ class XrayConfigBuilder {
     );
   }
 
+  /// Apply DNS, fragment, and mux settings on top of an already-built config.
+  static void applyAdvancedSettings(
+    Map<String, dynamic> config, {
+    String primaryDns = '8.8.8.8',
+    String secondaryDns = '1.1.1.1',
+    bool enableFragment = false,
+    String fragmentLength = '100-200',
+    String fragmentInterval = '10-20',
+    bool enableMux = false,
+    int muxConcurrency = 8,
+  }) {
+    config['dns'] = {
+      'servers': [
+        {
+          'address': 'https+local://1.1.1.1/dns-query',
+          'domains': ['geosite:geolocation-!cn'],
+        },
+        primaryDns,
+        secondaryDns,
+        'localhost',
+      ],
+    };
+
+    final outbounds = config['outbounds'] as List<dynamic>;
+    final proxyIdx = outbounds.indexWhere((o) => o['tag'] == 'proxy');
+    if (proxyIdx < 0) return;
+    final proxy = outbounds[proxyIdx] as Map<String, dynamic>;
+
+    if (enableMux) {
+      proxy['mux'] = {'enabled': true, 'concurrency': muxConcurrency};
+    } else {
+      proxy.remove('mux');
+    }
+
+    if (enableFragment) {
+      final stream = proxy['streamSettings'] as Map<String, dynamic>?;
+      if (stream != null) {
+        stream['sockopt'] = {
+          'fragment': {
+            'packets': 'tlshello',
+            'length': fragmentLength,
+            'interval': fragmentInterval,
+          },
+        };
+      }
+    } else {
+      final stream = proxy['streamSettings'] as Map<String, dynamic>?;
+      (stream?['sockopt'] as Map?)?.remove('fragment');
+    }
+  }
+
   static String toJsonString(Map<String, dynamic> config) {
     const encoder = JsonEncoder.withIndent('  ');
     return encoder.convert(config);
