@@ -85,17 +85,17 @@ jobs:
         continue-on-error: true
 
       - name: Build APK (universal)
-        working-directory: telovpn
-        run: flutter build apk --release
+        working-directory: telovpn/android
+        run: ./gradlew assembleRelease
 
       - name: List APKs
-        run: find telovpn/build/app/outputs -name "*.apk" 2>/dev/null || echo "No APKs found"
+        run: find telovpn/android/app/build/outputs -name "*.apk" 2>/dev/null || echo "No APKs found"
 
       - name: Upload universal APK
         uses: actions/upload-artifact@v4
         with:
           name: telovpn-release
-          path: telovpn/build/app/outputs/flutter-apk/app-release.apk
+          path: telovpn/android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
 
       - name: APK summary
@@ -104,6 +104,6 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| APK | Size |" >> $GITHUB_STEP_SUMMARY
           echo "|-----|------|" >> $GITHUB_STEP_SUMMARY
-          for apk in telovpn/build/app/outputs/flutter-apk/*.apk; do
+          for apk in telovpn/android/app/build/outputs/apk/release/*.apk; do
             [ -f "$apk" ] && echo "| $(basename $apk) | $(du -h $apk | cut -f1) |" >> $GITHUB_STEP_SUMMARY
           done
