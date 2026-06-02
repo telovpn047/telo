@@ -23,9 +23,7 @@ func Java_com_telovpn_app_VpnCore_startTun2Socks(env *C.JNIEnv, cls C.jclass, tu
 		MTU:      int(mtu),
 	}
 	engine.Insert(key)
-	if err := engine.Start(); err != nil {
-		return -1
-	}
+	engine.Start()
 	return 0
 }
 
