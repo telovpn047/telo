@@ -41,6 +41,15 @@ android {
             signingConfig = signingConfigs.debug
         }
     }
+
+    // xray / tun2socks binary'lerini lib*.so olarak paketleyip diske çıkar.
+    // Android 10+ yalnızca nativeLibraryDir içindeki dosyaların çalıştırılmasına
+    // izin verir; bu yüzden ikilileri jniLibs altına .so olarak koyuyoruz.
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
 }
 
 flutter {

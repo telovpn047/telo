@@ -28,7 +28,9 @@ class XrayConfigBuilder {
               {
                 'id': uuid,
                 'encryption': 'none',
-                'flow': security == 'reality' ? 'xtls-rprx-vision' : '',
+                // Xray boş 'flow' string'ini reddedebilir; yalnızca Reality/XTLS
+                // kullanılırken bu anahtarı ekle.
+                if (security == 'reality') 'flow': 'xtls-rprx-vision',
               }
             ]
           }

@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -68,7 +69,7 @@ class TeloVpnService : VpnService() {
         log("VPN başlatılıyor: $serverName")
         withContext(Dispatchers.Main) {
             createNotificationChannel()
-            startForeground(NOTIFICATION_ID, buildNotification(serverName, true))
+            startForegroundCompat(buildNotification(serverName, true))
         }
 
         try {
@@ -98,11 +99,14 @@ class TeloVpnService : VpnService() {
             }
 
             // 4. tun2socks başlat (TUN → SOCKS5 köprüsü)
+            //    Bu köprü olmadan TUN açık kalır ama trafik hiçbir yere gitmez →
+            //    telefon tamamen internetsiz kalır. Bu yüzden hata ölümcüldür.
             val tunFd = vpnInterface!!.fd
             val tun2socksOk = startTun2Socks(tunFd)
             if (!tun2socksOk) {
-                log("tun2socks başlatılamadı — temel mod devam ediyor (SOCKS only)")
-                // Yine de devam et; kullanıcı SOCKS proxy olarak kullanabilir
+                log("tun2socks başlatılamadı — VPN durduruluyor (köprü olmadan internet kesilir)")
+                withContext(Dispatchers.Main) { stopVpn() }
+                return
             }
 
             isRunning = true
@@ -119,12 +123,12 @@ class TeloVpnService : VpnService() {
     private suspend fun startXrayCore(configPath: String): Boolean {
         return withContext(Dispatchers.IO) {
             try {
-                val xrayBin = extractBinary("xray_binary", detectAbi("xray"))
-                if (!xrayBin.exists()) {
-                    log("Xray binary bulunamadı: ${xrayBin.absolutePath}")
+                val xrayBin = nativeBinary("libxray.so")
+                if (xrayBin == null || !xrayBin.exists()) {
+                    log("Xray binary bulunamadı (nativeLibraryDir): libxray.so")
                     return@withContext false
                 }
-                xrayBin.setExecutable(true, true)
+                log("Xray binary: ${xrayBin.absolutePath}")
                 copyGeoFiles()
 
                 val pb = ProcessBuilder(xrayBin.absolutePath, "run", "-c", configPath).apply {
@@ -146,21 +150,27 @@ class TeloVpnService : VpnService() {
                     }
                 }
 
-                // Xray'in başlaması için bekle ve SOCKS portunu kontrol et
-                delay(2000)
-                val alive = xrayProcess?.isAlive ?: false
-                log("Xray süreci hayatta: $alive")
-
-                if (alive) {
-                    // SOCKS portunun dinlenip dinlenmediğini kontrol et
-                    val socksReady = checkPortOpen("127.0.0.1", 10808, timeoutMs = 3000)
-                    log("SOCKS5 port 10808 hazır: $socksReady")
-                    if (!socksReady) {
-                        log("Xray başladı ama SOCKS portu henüz dinlenmiyor, 2s daha bekleniyor...")
-                        delay(2000)
-                    }
+                // Xray'in SOCKS5 portunu açmasını bekle (en fazla ~10s)
+                delay(500)
+                if (xrayProcess?.isAlive != true) {
+                    log("Xray süreci hemen sonlandı — config veya binary hatası")
+                    return@withContext false
                 }
-                alive
+
+                var socksReady = false
+                for (i in 0 until 20) {
+                    if (checkPortOpen("127.0.0.1", 10808, timeoutMs = 500)) {
+                        socksReady = true
+                        break
+                    }
+                    if (xrayProcess?.isAlive != true) {
+                        log("Xray çalışırken durdu (deneme ${i + 1})")
+                        break
+                    }
+                    Thread.sleep(500)
+                }
+                log("SOCKS5 port 10808 hazır: $socksReady")
+                socksReady
             } catch (e: Exception) {
                 log("Xray başlatma istisnası: ${e.message}")
                 false
@@ -173,17 +183,18 @@ class TeloVpnService : VpnService() {
     private suspend fun startTun2Socks(tunFd: Int): Boolean {
         return withContext(Dispatchers.IO) {
             try {
-                val t2sBin = extractBinary("tun2socks_binary", detectAbi("tun2socks"))
-                if (!t2sBin.exists()) {
-                    log("tun2socks binary assets'te bulunamadı — yüklenmemiş olabilir")
+                val t2sBin = nativeBinary("libtun2socks.so")
+                if (t2sBin == null || !t2sBin.exists()) {
+                    log("tun2socks binary bulunamadı (nativeLibraryDir): libtun2socks.so")
                     return@withContext false
                 }
-                t2sBin.setExecutable(true, true)
+                log("tun2socks binary: ${t2sBin.absolutePath}")
 
                 val pb = ProcessBuilder(
                     t2sBin.absolutePath,
-                    "-device", "tun://fd/$tunFd",
+                    "-device", "fd://$tunFd",
                     "-proxy",  "socks5://127.0.0.1:10808",
+                    "-mtu",    "1500",
                     "-loglevel", "warning"
                 ).apply {
                     redirectErrorStream(true)
@@ -242,40 +253,48 @@ class TeloVpnService : VpnService() {
 
     // ── Yardımcı ─────────────────────────────────────────────────────────────
 
-    private fun detectAbi(name: String): String {
-        val abi = Build.SUPPORTED_ABIS.firstOrNull() ?: "arm64-v8a"
-        return when {
-            abi.contains("arm64") -> "xray/${name}_arm64"
-            abi.contains("x86_64") -> "xray/${name}_x64"
-            else -> "xray/${name}_arm64"
-        }
+    /**
+     * jniLibs içinden paketlenip nativeLibraryDir'e çıkarılmış ikiliyi döndürür.
+     * Android 10+ yalnızca bu dizindeki dosyaların çalıştırılmasına izin verir.
+     */
+    private fun nativeBinary(soName: String): File? {
+        val dir = applicationInfo.nativeLibraryDir
+        val f = File(dir, soName)
+        return if (f.exists()) f else null
     }
 
-    private fun extractBinary(destName: String, assetPath: String): File {
-        val outputFile = File(filesDir, destName)
-        return try {
-            assets.open(assetPath).use { input ->
-                FileOutputStream(outputFile).use { output -> input.copyTo(output) }
-            }
-            log("Binary çıkartıldı: $assetPath → $destName")
-            outputFile
-        } catch (e: Exception) {
-            log("Binary çıkartma hatası ($assetPath): ${e.message}")
-            outputFile
+    private fun startForegroundCompat(notification: Notification) {
+        if (Build.VERSION.SDK_INT >= 34) {
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
         }
     }
 
     private fun copyGeoFiles() {
+        // Uygulama sürümü değiştiğinde geo verisi de güncellensin diye
+        // assets içindeki kopya daha büyük/farklıysa her zaman üzerine yaz.
         listOf("geoip.dat", "geosite.dat").forEach { filename ->
             val dest = File(filesDir, filename)
-            if (!dest.exists()) {
-                try {
+            try {
+                val assetSize = assets.openFd("xray/$filename").use { it.length }
+                if (!dest.exists() || dest.length() != assetSize) {
                     assets.open("xray/$filename").use { i ->
                         FileOutputStream(dest).use { o -> i.copyTo(o) }
                     }
-                    log("Geo dosyası kopyalandı: $filename")
-                } catch (e: Exception) {
-                    log("Geo dosyası kopyalanamadı ($filename): ${e.message}")
+                    log("Geo dosyası kopyalandı: $filename (${dest.length()} byte)")
+                }
+            } catch (e: Exception) {
+                // openFd sıkıştırılmış asset'lerde başarısız olabilir → düz kopyala
+                if (!dest.exists()) {
+                    try {
+                        assets.open("xray/$filename").use { i ->
+                            FileOutputStream(dest).use { o -> i.copyTo(o) }
+                        }
+                        log("Geo dosyası kopyalandı (fallback): $filename")
+                    } catch (e2: Exception) {
+                        log("Geo dosyası kopyalanamadı ($filename): ${e2.message}")
+                    }
                 }
             }
         }

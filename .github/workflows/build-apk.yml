@@ -38,48 +38,60 @@ jobs:
           mkdir -p telovpn/assets/icons
           mkdir -p telovpn/assets/images
           mkdir -p telovpn/android/app/src/main/assets/xray
+          mkdir -p telovpn/android/app/src/main/jniLibs/arm64-v8a
+          mkdir -p telovpn/android/app/src/main/jniLibs/x86_64
 
       - name: Download Xray Core binaries
         run: |
+          # Android'de yalnızca nativeLibraryDir içindeki dosyalar çalıştırılabilir.
+          # Bu yüzden xray ikilisini jniLibs/<abi>/libxray.so olarak paketliyoruz.
           RELEASE=$(curl -fsSL https://api.github.com/repos/XTLS/Xray-core/releases/latest)
           XRAY_VERSION=$(echo "$RELEASE" | jq -r '.tag_name')
           echo "Xray Core: ${XRAY_VERSION}"
 
           BASE="https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}"
-          ADIR="telovpn/android/app/src/main/assets/xray"
+          ARM64="telovpn/android/app/src/main/jniLibs/arm64-v8a"
+          X64="telovpn/android/app/src/main/jniLibs/x86_64"
 
           curl -fL "${BASE}/Xray-android-arm64-v8a.zip" -o /tmp/arm64.zip
-          unzip -p /tmp/arm64.zip xray > "${ADIR}/xray_arm64"
+          unzip -p /tmp/arm64.zip xray > "${ARM64}/libxray.so"
 
           if curl -fL "${BASE}/Xray-android-x86_64.zip" -o /tmp/x64.zip 2>/dev/null; then
-            unzip -p /tmp/x64.zip xray > "${ADIR}/xray_x64"
+            unzip -p /tmp/x64.zip xray > "${X64}/libxray.so"
           else
-            cp "${ADIR}/xray_arm64" "${ADIR}/xray_x64"
+            cp "${ARM64}/libxray.so" "${X64}/libxray.so"
           fi
 
-          chmod +x "${ADIR}"/xray_*
-          ls -lh "${ADIR}"/
+          ls -lh "${ARM64}/" "${X64}/"
 
       - name: Download tun2socks binaries
         run: |
+          # tun2socks ikilisi de jniLibs/<abi>/libtun2socks.so olarak paketlenir.
+          # xjasonlyu/tun2socks Go ile statik derlenir; Android için ayrı yapı yoksa
+          # linux-arm64 statik ikilisi nativeLibraryDir'den çalışır.
           T2S_RELEASE=$(curl -fsSL https://api.github.com/repos/xjasonlyu/tun2socks/releases/latest)
           T2S_VERSION=$(echo "$T2S_RELEASE" | jq -r '.tag_name')
           echo "tun2socks: ${T2S_VERSION}"
 
           BASE="https://github.com/xjasonlyu/tun2socks/releases/download/${T2S_VERSION}"
-          ADIR="telovpn/android/app/src/main/assets/xray"
+          ARM64="telovpn/android/app/src/main/jniLibs/arm64-v8a"
+          X64="telovpn/android/app/src/main/jniLibs/x86_64"
 
-          curl -fL "${BASE}/tun2socks-linux-arm64.zip" -o /tmp/t2s_arm64.zip
-          unzip -p /tmp/t2s_arm64.zip tun2socks > "${ADIR}/tun2socks_arm64"
+          fetch_t2s() {
+            # $1 = abi-candidates (boşlukla ayrılmış), $2 = hedef .so
+            for name in $1; do
+              if curl -fL "${BASE}/${name}.zip" -o /tmp/t2s.zip 2>/dev/null; then
+                unzip -p /tmp/t2s.zip tun2socks > "$2" && echo "indirildi: ${name}" && return 0
+              fi
+            done
+            return 1
+          }
 
-          if curl -fL "${BASE}/tun2socks-linux-amd64.zip" -o /tmp/t2s_x64.zip 2>/dev/null; then
-            unzip -p /tmp/t2s_x64.zip tun2socks > "${ADIR}/tun2socks_x64"
-          else
-            cp "${ADIR}/tun2socks_arm64" "${ADIR}/tun2socks_x64"
-          fi
+          fetch_t2s "tun2socks-android-arm64 tun2socks-linux-arm64" "${ARM64}/libtun2socks.so"
+          fetch_t2s "tun2socks-android-amd64 tun2socks-linux-amd64" "${X64}/libtun2socks.so" \
+            || cp "${ARM64}/libtun2socks.so" "${X64}/libtun2socks.so"
 
-          chmod +x "${ADIR}"/tun2socks_*
-          ls -lh "${ADIR}"/
+          ls -lh "${ARM64}/" "${X64}/"
 
       - name: Download GeoData
         run: |
