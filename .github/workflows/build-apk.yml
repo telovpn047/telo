@@ -67,39 +67,48 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.21'
           cache: false
 
       - name: Install Android NDK
         run: |
           echo "y" | ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager "ndk;25.2.9519653" 2>&1 | tail -5
-          echo "NDK_HOME=${ANDROID_SDK_ROOT}/ndk/25.2.9519653" >> $GITHUB_ENV
+          NDK_PATH="${ANDROID_SDK_ROOT}/ndk/25.2.9519653"
+          echo "NDK_HOME=${NDK_PATH}" >> $GITHUB_ENV
+          echo "NDK installed at: ${NDK_PATH}"
+          ls "${NDK_PATH}/toolchains/llvm/prebuilt/linux-x86_64/bin/" | grep -E "aarch64|x86_64" | head -5
 
       - name: Build libvpncore.so (tun2socks JNI)
         run: |
-          ARM64="telovpn/android/app/src/main/jniLibs/arm64-v8a"
-          X64="telovpn/android/app/src/main/jniLibs/x86_64"
           PREBUILT="${NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          SYSROOT="${NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
 
           cd telovpn/android/go_tun2socks
+          echo "=== go env ==="
+          go env GOVERSION GOOS GOARCH CGO_ENABLED
+          echo "=== go mod tidy ==="
           go mod tidy
+          echo "=== go.mod after tidy ==="
+          cat go.mod
 
-          echo "Building libvpncore.so for arm64-v8a..."
+          echo "=== Building arm64-v8a ==="
           CGO_ENABLED=1 GOOS=android GOARCH=arm64 \
             CC="${PREBUILT}/aarch64-linux-android21-clang" \
-            go build -buildmode=c-shared -trimpath -ldflags="-s -w" \
-            -o "../app/src/main/jniLibs/arm64-v8a/libvpncore.so" .
-          echo "arm64-v8a: $(du -h ${ARM64}/libvpncore.so | cut -f1)"
+            CGO_CFLAGS="-I${SYSROOT}/usr/include -I${SYSROOT}/usr/include/aarch64-linux-android" \
+            go build -v -buildmode=c-shared -trimpath -ldflags="-s -w" \
+            -o "../app/src/main/jniLibs/arm64-v8a/libvpncore.so" . \
+            2>&1 | tail -30
+          ls -lh "../app/src/main/jniLibs/arm64-v8a/libvpncore.so"
 
-          echo "Building libvpncore.so for x86_64..."
+          echo "=== Building x86_64 ==="
           CGO_ENABLED=1 GOOS=android GOARCH=amd64 \
             CC="${PREBUILT}/x86_64-linux-android21-clang" \
+            CGO_CFLAGS="-I${SYSROOT}/usr/include -I${SYSROOT}/usr/include/x86_64-linux-android" \
             go build -buildmode=c-shared -trimpath -ldflags="-s -w" \
-            -o "../app/src/main/jniLibs/x86_64/libvpncore.so" .
-          echo "x86_64: $(du -h ${X64}/libvpncore.so | cut -f1)"
+            -o "../app/src/main/jniLibs/x86_64/libvpncore.so" . \
+            2>&1 | tail -10
 
-          ls -lh "../app/src/main/jniLibs/arm64-v8a/" "../app/src/main/jniLibs/x86_64/"
-          test -s "../app/src/main/jniLibs/arm64-v8a/libvpncore.so" || { echo "HATA: libvpncore.so boş"; exit 1; }
+          test -s "../app/src/main/jniLibs/arm64-v8a/libvpncore.so" || { echo "HATA: libvpncore.so boş/yok"; exit 1; }
 
       - name: Download GeoData
         run: |
