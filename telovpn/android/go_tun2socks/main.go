@@ -13,7 +13,7 @@ import (
 )
 
 //export Java_com_telovpn_app_VpnCore_startTun2Socks
-func Java_com_telovpn_app_VpnCore_startTun2Socks(_ *C.JNIEnv, _ C.jclass, tunFd C.jint, mtu C.jint, proxyUrl *C.char) C.jint {
+func Java_com_telovpn_app_VpnCore_startTun2Socks(env *C.JNIEnv, cls C.jclass, tunFd C.jint, mtu C.jint, proxyUrl *C.char) C.jint {
 	engine.Stop()
 
 	key := &engine.Key{
@@ -30,7 +30,7 @@ func Java_com_telovpn_app_VpnCore_startTun2Socks(_ *C.JNIEnv, _ C.jclass, tunFd 
 }
 
 //export Java_com_telovpn_app_VpnCore_stopTun2Socks
-func Java_com_telovpn_app_VpnCore_stopTun2Socks(_ *C.JNIEnv, _ C.jclass) {
+func Java_com_telovpn_app_VpnCore_stopTun2Socks(env *C.JNIEnv, cls C.jclass) {
 	engine.Stop()
 }
 
