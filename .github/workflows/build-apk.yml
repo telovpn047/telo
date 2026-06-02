@@ -44,21 +44,16 @@ jobs:
           RELEASE=$(curl -fsSL https://api.github.com/repos/XTLS/Xray-core/releases/latest)
           XRAY_VERSION=$(echo "$RELEASE" | jq -r '.tag_name')
           echo "Xray Core: ${XRAY_VERSION}"
-          echo "Available assets:"
-          echo "$RELEASE" | jq -r '.assets[].name'
 
           BASE="https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}"
           ADIR="telovpn/android/app/src/main/assets/xray"
 
-          # arm64-v8a (required — fails build if missing)
           curl -fL "${BASE}/Xray-android-arm64-v8a.zip" -o /tmp/arm64.zip
           unzip -p /tmp/arm64.zip xray > "${ADIR}/xray_arm64"
 
-          # x86_64 (optional — emulator/testing only; falls back to arm64)
           if curl -fL "${BASE}/Xray-android-x86_64.zip" -o /tmp/x64.zip 2>/dev/null; then
             unzip -p /tmp/x64.zip xray > "${ADIR}/xray_x64"
           else
-            echo "x86_64 not available, copying arm64"
             cp "${ADIR}/xray_arm64" "${ADIR}/xray_x64"
           fi
 
@@ -71,14 +66,13 @@ jobs:
             -o telovpn/android/app/src/main/assets/xray/geoip.dat
           curl -fL "https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat" \
             -o telovpn/android/app/src/main/assets/xray/geosite.dat
-          ls -lh telovpn/android/app/src/main/assets/xray/
 
       - name: Create local.properties
         run: |
-          echo "flutter.sdk=$FLUTTER_ROOT"     > telovpn/android/local.properties
-          echo "sdk.dir=$ANDROID_SDK_ROOT"    >> telovpn/android/local.properties
-          echo "flutter.versionCode=1"        >> telovpn/android/local.properties
-          echo "flutter.versionName=1.0.0"   >> telovpn/android/local.properties
+          echo "flutter.sdk=$FLUTTER_ROOT"   > telovpn/android/local.properties
+          echo "sdk.dir=$ANDROID_SDK_ROOT"  >> telovpn/android/local.properties
+          echo "flutter.versionCode=1"      >> telovpn/android/local.properties
+          echo "flutter.versionName=1.0.0"  >> telovpn/android/local.properties
           cat telovpn/android/local.properties
 
       - name: Flutter pub get
@@ -90,13 +84,16 @@ jobs:
         run: flutter analyze --no-fatal-infos
         continue-on-error: true
 
-      - name: Build split APKs (per ABI)
+      - name: Build APK (split per ABI)
         working-directory: telovpn
         run: flutter build apk --release --split-per-abi
 
       - name: Build universal APK
         working-directory: telovpn
         run: flutter build apk --release
+
+      - name: List APKs
+        run: ls -lh telovpn/build/app/outputs/flutter-apk/
 
       - name: Upload arm64-v8a APK
         uses: actions/upload-artifact@v4
@@ -123,10 +120,8 @@ jobs:
         run: |
           echo "### APK Build Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| ABI | Size |" >> $GITHUB_STEP_SUMMARY
+          echo "| APK | Size |" >> $GITHUB_STEP_SUMMARY
           echo "|-----|------|" >> $GITHUB_STEP_SUMMARY
           for apk in telovpn/build/app/outputs/flutter-apk/*.apk; do
-            size=$(du -h "$apk" | cut -f1)
-            name=$(basename "$apk")
-            echo "| $name | $size |" >> $GITHUB_STEP_SUMMARY
+            [ -f "$apk" ] && echo "| $(basename $apk) | $(du -h $apk | cut -f1) |" >> $GITHUB_STEP_SUMMARY
           done
