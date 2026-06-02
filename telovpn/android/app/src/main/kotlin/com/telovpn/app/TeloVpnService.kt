@@ -43,7 +43,13 @@ class TeloVpnService : VpnService() {
     private var vpnInterface: ParcelFileDescriptor? = null
     private var xrayProcess: Process?    = null
     private var tun2socksProcess: Process? = null
-    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val serviceScope = CoroutineScope(
+        Dispatchers.IO + SupervisorJob() +
+        CoroutineExceptionHandler { _, throwable ->
+            Log.e(TAG, "VPN scope uncaught exception: ${throwable.message}", throwable)
+            addLog("[VPN] KRITIK HATA: ${throwable.message}")
+        }
+    )
 
     // ── Lifecycle ────────────────────────────────────────────────────────────
 
@@ -67,18 +73,19 @@ class TeloVpnService : VpnService() {
 
     private suspend fun startVpn(config: String, serverName: String) {
         log("VPN başlatılıyor: $serverName")
-        withContext(Dispatchers.Main) {
-            createNotificationChannel()
-            startForegroundCompat(buildNotification(serverName, true))
-        }
-
         try {
+            // Foreground bildirimi — önce bu, aksi hâlde 5s ANR / Android 14 exception
+            withContext(Dispatchers.Main) {
+                createNotificationChannel()
+                startForegroundCompat(buildNotification(serverName, true))
+            }
+
             // 1. Config dosyasını yaz
             val configFile = File(filesDir, "xray_config.json")
             configFile.writeText(config)
             log("Config yazıldı: ${configFile.length()} byte")
 
-            // 2. Xray binary'yi çıkart ve başlat
+            // 2. Xray binary başlat
             val xrayOk = startXrayCore(configFile.absolutePath)
             if (!xrayOk) {
                 log("Xray başlatılamadı — VPN durduruluyor")
@@ -86,25 +93,20 @@ class TeloVpnService : VpnService() {
                 return
             }
 
-            // 3. TUN arayüzünü kur
-            //    Kendi trafiğimizi VPN dışında bırak (routing loop engeli)
-            withContext(Dispatchers.Main) {
-                setupVpnInterface()
-            }
+            // 3. TUN arayüzünü kur (Main thread zorunlu)
+            withContext(Dispatchers.Main) { setupVpnInterface() }
 
             if (vpnInterface == null) {
-                log("TUN arayüzü kurulamadı")
+                log("TUN arayüzü kurulamadı — VPN durduruluyor")
                 withContext(Dispatchers.Main) { stopVpn() }
                 return
             }
 
-            // 4. tun2socks başlat (TUN → SOCKS5 köprüsü)
-            //    Bu köprü olmadan TUN açık kalır ama trafik hiçbir yere gitmez →
-            //    telefon tamamen internetsiz kalır. Bu yüzden hata ölümcüldür.
-            val tunFd = vpnInterface!!.fd
-            val tun2socksOk = startTun2Socks(tunFd)
+            // 4. tun2socks köprüsü (TUN → SOCKS5)
+            //    Köprü olmadan TUN açık kalır, trafik hiçbir yere gitmez → internet kesilir
+            val tun2socksOk = startTun2Socks(vpnInterface!!.fd)
             if (!tun2socksOk) {
-                log("tun2socks başlatılamadı — VPN durduruluyor (köprü olmadan internet kesilir)")
+                log("tun2socks başlatılamadı — VPN durduruluyor")
                 withContext(Dispatchers.Main) { stopVpn() }
                 return
             }
@@ -113,8 +115,8 @@ class TeloVpnService : VpnService() {
             log("VPN başarıyla başlatıldı")
 
         } catch (e: Exception) {
-            log("VPN başlatma hatası: ${e.message}")
-            withContext(Dispatchers.Main) { stopVpn() }
+            log("VPN başlatma hatası (${e.javaClass.simpleName}): ${e.message}")
+            try { withContext(Dispatchers.Main) { stopVpn() } } catch (_: Exception) {}
         }
     }
 

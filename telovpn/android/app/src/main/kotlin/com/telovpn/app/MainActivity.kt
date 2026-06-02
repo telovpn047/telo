@@ -53,11 +53,15 @@ class MainActivity : FlutterActivity() {
                 "startVpn" -> {
                     val config = call.argument<String>("config") ?: ""
                     val serverName = call.argument<String>("serverName") ?: "TeloVPN"
-                    startVpnService(config, serverName)
-                    result.success(true)
+                    try {
+                        startVpnService(config, serverName)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("VPN_START_ERROR", e.message, null)
+                    }
                 }
                 "stopVpn" -> {
-                    stopVpnService()
+                    try { stopVpnService() } catch (_: Exception) {}
                     result.success(true)
                 }
                 "getVpnStatus" -> {
