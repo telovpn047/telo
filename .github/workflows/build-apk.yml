@@ -64,48 +64,29 @@ jobs:
 
           ls -lh "${ARM64}/" "${X64}/"
 
-      - name: Install Android NDK
-        run: |
-          echo "y" | ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager "ndk;25.2.9519653" 2>&1 | tail -5
-          echo "NDK_HOME=${ANDROID_SDK_ROOT}/ndk/25.2.9519653" >> $GITHUB_ENV
-
-      - name: Build hev-socks5-tunnel
+      - name: Download hev-socks5-tunnel
         run: |
           ARM64="telovpn/android/app/src/main/jniLibs/arm64-v8a"
           X64="telovpn/android/app/src/main/jniLibs/x86_64"
-          NDK="${NDK_HOME}"
 
-          HEV_BRANCH=$(curl -fsSL "https://api.github.com/repos/hev-project/hev-socks5-tunnel" | jq -r '.default_branch')
+          # Repo: heiher/hev-socks5-tunnel (pre-built binaries committed in libs/)
+          HEV_BRANCH=$(curl -fsSL "https://api.github.com/repos/heiher/hev-socks5-tunnel" \
+            | jq -r '.default_branch')
           echo "hev branch: ${HEV_BRANCH}"
-          curl -fL "https://github.com/hev-project/hev-socks5-tunnel/archive/refs/heads/${HEV_BRANCH}.tar.gz" \
+          curl -fL "https://github.com/heiher/hev-socks5-tunnel/archive/refs/heads/${HEV_BRANCH}.tar.gz" \
             -o /tmp/hev.tar.gz
           tar -xzf /tmp/hev.tar.gz -C /tmp/
           mv /tmp/hev-socks5-tunnel-* /tmp/hev
-          echo "hev source ready"
 
-          build_hev() {
-            ABI=$1; DEST=$2
-            cmake -B /tmp/hev/build-${ABI} /tmp/hev \
-              -DCMAKE_TOOLCHAIN_FILE="${NDK}/build/cmake/android.toolchain.cmake" \
-              -DANDROID_ABI="${ABI}" \
-              -DANDROID_PLATFORM=android-21 \
-              -DCMAKE_BUILD_TYPE=Release 2>&1 | tail -5
-            cmake --build /tmp/hev/build-${ABI} -j$(nproc) 2>&1 | tail -5
-            BIN=$(find /tmp/hev/build-${ABI} -maxdepth 3 -type f \
-              ! -name "*.cmake" ! -name "CMakeCache.txt" ! -name "*.a" \
-              ! -name "Makefile" ! -name "*.ninja" | head -1)
-            echo "  binary: $BIN ($(du -h "$BIN" | cut -f1))"
-            cp "$BIN" "${DEST}/libhev.so"
-          }
+          ARM64_SO=$(find /tmp/hev/libs/arm64-v8a -name "*.so" 2>/dev/null | head -1)
+          X64_SO=$(find /tmp/hev/libs/x86_64 -name "*.so" 2>/dev/null | head -1)
+          echo "arm64: $ARM64_SO"
 
-          echo "=== Building arm64-v8a ==="
-          build_hev "arm64-v8a" "${ARM64}"
-
-          echo "=== Building x86_64 ==="
-          build_hev "x86_64" "${X64}"
+          cp "$ARM64_SO" "${ARM64}/libhev.so"
+          [ -n "$X64_SO" ] && cp "$X64_SO" "${X64}/libhev.so" || cp "${ARM64}/libhev.so" "${X64}/libhev.so"
 
           ls -lh "${ARM64}/" "${X64}/"
-          test -s "${ARM64}/libhev.so" || { echo "HATA: libhev.so boş/yok"; exit 1; }
+          test -s "${ARM64}/libhev.so" || { echo "HATA: libhev.so boş"; exit 1; }
 
       - name: Download GeoData
         run: |
