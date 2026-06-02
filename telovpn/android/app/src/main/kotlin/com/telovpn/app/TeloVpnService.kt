@@ -41,6 +41,7 @@ class TeloVpnService : VpnService() {
 
     private var vpnInterface: android.os.ParcelFileDescriptor? = null
     private var xrayProcess: Process? = null
+    private var hevProcess: Process? = null
     private val serviceScope = CoroutineScope(
         Dispatchers.IO + SupervisorJob() +
         CoroutineExceptionHandler { _, throwable ->
@@ -183,16 +184,55 @@ class TeloVpnService : VpnService() {
         }
     }
 
-    // ── tun2socks (JNI in-process) ───────────────────────────────────────────
+    // ── hev-socks5-tunnel (TUN → SOCKS5 köprüsü) ────────────────────────────
+    // hev, fd numarasını /proc/<ppid>/fd/<N> üzerinden açar → O_CLOEXEC sorunu yok.
+    // TmVpn'in kanıtlanmış yaklaşımıyla birebir aynı mimari.
 
     private fun startTun2Socks(tunFd: Int): Boolean {
         return try {
-            log("tun2socks JNI başlatılıyor — fd=$tunFd")
-            val rc = VpnCore.startTun2Socks(tunFd, 1500, "socks5://127.0.0.1:10808")
-            log("tun2socks JNI sonucu: $rc")
-            rc == 0
+            val hevBin = nativeBinary("libhev.so")
+            if (hevBin == null || !hevBin.exists()) {
+                log("hev binary bulunamadı: libhev.so")
+                return false
+            }
+            log("hev binary: ${hevBin.absolutePath}")
+
+            val hevConfig = File(filesDir, "hev.yaml")
+            hevConfig.writeText(
+                "tunnel:\n" +
+                "  mtu: 1500\n" +
+                "socks5:\n" +
+                "  port: 10808\n" +
+                "  address: 127.0.0.1\n" +
+                "  udp: udp\n" +
+                "misc:\n" +
+                "  task-stack-size: 20480\n" +
+                "  log-level: warn\n"
+            )
+
+            hevProcess = ProcessBuilder(
+                hevBin.absolutePath,
+                hevConfig.absolutePath,
+                tunFd.toString()
+            ).apply {
+                redirectErrorStream(true)
+                directory(filesDir)
+            }.start()
+
+            serviceScope.launch(Dispatchers.IO) {
+                try {
+                    hevProcess?.inputStream?.bufferedReader()?.forEachLine { line ->
+                        Log.d("hev", line); addLog("[hev] $line")
+                    }
+                } catch (_: Exception) {}
+            }
+
+            Thread.sleep(500)
+            val alive = hevProcess?.isAlive ?: false
+            log("hev süreci hayatta: $alive")
+            alive
         } catch (e: Exception) {
-            log("tun2socks JNI istisnası (${e.javaClass.simpleName}): ${e.message}")
+            log("hev başlatma istisnası: ${e.message}")
             false
         }
     }
@@ -298,7 +338,8 @@ class TeloVpnService : VpnService() {
         isRunning = false
         log("VPN durduruluyor...")
         try {
-            try { VpnCore.stopTun2Socks() } catch (_: Exception) {}
+            try { hevProcess?.destroyForcibly() } catch (_: Exception) {}
+            hevProcess = null
             xrayProcess?.destroyForcibly()
             xrayProcess = null
             vpnInterface?.close()

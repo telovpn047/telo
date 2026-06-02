@@ -64,51 +64,62 @@ jobs:
 
           ls -lh "${ARM64}/" "${X64}/"
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.21'
-          cache: false
-
-      - name: Install Android NDK
+      - name: Download hev-socks5-tunnel
         run: |
-          echo "y" | ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager "ndk;25.2.9519653" 2>&1 | tail -5
-          NDK_PATH="${ANDROID_SDK_ROOT}/ndk/25.2.9519653"
-          echo "NDK_HOME=${NDK_PATH}" >> $GITHUB_ENV
-          echo "NDK installed at: ${NDK_PATH}"
-          ls "${NDK_PATH}/toolchains/llvm/prebuilt/linux-x86_64/bin/" | grep -E "aarch64|x86_64" | head -5
+          ARM64="telovpn/android/app/src/main/jniLibs/arm64-v8a"
+          X64="telovpn/android/app/src/main/jniLibs/x86_64"
 
-      - name: Build libvpncore.so (tun2socks JNI)
-        run: |
-          PREBUILT="${NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          SYSROOT="${NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+          RELEASE=$(curl -fsSL https://api.github.com/repos/hev-project/hev-socks5-tunnel/releases/latest)
+          VERSION=$(echo "$RELEASE" | jq -r '.tag_name')
+          echo "hev-socks5-tunnel: ${VERSION}"
 
-          cd telovpn/android/go_tun2socks
-          echo "=== go env ==="
-          go env GOVERSION GOOS GOARCH CGO_ENABLED
-          echo "=== go mod tidy ==="
-          go mod tidy
-          echo "=== go.mod after tidy ==="
-          cat go.mod
+          # ARM64 — release asset adını bul
+          ARM64_URL=$(echo "$RELEASE" | jq -r '
+            .assets[] |
+            select(.name | test("arm64|aarch64|arm-v8a|armv8"; "i")) |
+            .browser_download_url' | grep -v ".zip\|.sha" | head -1)
+          # zip varsa da dene
+          [ -z "$ARM64_URL" ] && ARM64_URL=$(echo "$RELEASE" | jq -r '
+            .assets[] |
+            select(.name | test("arm64|aarch64"; "i")) |
+            .browser_download_url' | head -1)
 
-          echo "=== Building arm64-v8a ==="
-          CGO_ENABLED=1 GOOS=android GOARCH=arm64 \
-            CC="${PREBUILT}/aarch64-linux-android21-clang" \
-            CGO_CFLAGS="-I${SYSROOT}/usr/include -I${SYSROOT}/usr/include/aarch64-linux-android" \
-            go build -v -buildmode=c-shared -trimpath -ldflags="-s -w" \
-            -o "../app/src/main/jniLibs/arm64-v8a/libvpncore.so" . \
-            2>&1 | tail -30
-          ls -lh "../app/src/main/jniLibs/arm64-v8a/libvpncore.so"
+          echo "ARM64 URL: $ARM64_URL"
+          if [ -n "$ARM64_URL" ]; then
+            if echo "$ARM64_URL" | grep -q "\.zip"; then
+              curl -fL "$ARM64_URL" -o /tmp/hev_arm64.zip
+              unzip -o /tmp/hev_arm64.zip -d /tmp/hev_arm64_ex >/dev/null 2>&1
+              BIN=$(find /tmp/hev_arm64_ex -type f ! -name "*.md" ! -name "*.txt" | head -1)
+              cp "$BIN" "${ARM64}/libhev.so"
+            else
+              curl -fL "$ARM64_URL" -o "${ARM64}/libhev.so"
+            fi
+          else
+            echo "HATA: ARM64 binary bulunamadı"
+            echo "$RELEASE" | jq -r '.assets[].name'
+            exit 1
+          fi
 
-          echo "=== Building x86_64 ==="
-          CGO_ENABLED=1 GOOS=android GOARCH=amd64 \
-            CC="${PREBUILT}/x86_64-linux-android21-clang" \
-            CGO_CFLAGS="-I${SYSROOT}/usr/include -I${SYSROOT}/usr/include/x86_64-linux-android" \
-            go build -buildmode=c-shared -trimpath -ldflags="-s -w" \
-            -o "../app/src/main/jniLibs/x86_64/libvpncore.so" . \
-            2>&1 | tail -10
+          # X86_64 — yoksa arm64'ü kopyala (emülatör için)
+          X64_URL=$(echo "$RELEASE" | jq -r '
+            .assets[] |
+            select(.name | test("x86.64|amd64|x86_64"; "i")) |
+            .browser_download_url' | grep -v ".zip\|.sha" | head -1)
+          if [ -n "$X64_URL" ]; then
+            if echo "$X64_URL" | grep -q "\.zip"; then
+              curl -fL "$X64_URL" -o /tmp/hev_x64.zip
+              unzip -o /tmp/hev_x64.zip -d /tmp/hev_x64_ex >/dev/null 2>&1
+              BIN=$(find /tmp/hev_x64_ex -type f ! -name "*.md" ! -name "*.txt" | head -1)
+              cp "$BIN" "${X64}/libhev.so"
+            else
+              curl -fL "$X64_URL" -o "${X64}/libhev.so"
+            fi
+          else
+            cp "${ARM64}/libhev.so" "${X64}/libhev.so"
+          fi
 
-          test -s "../app/src/main/jniLibs/arm64-v8a/libvpncore.so" || { echo "HATA: libvpncore.so boş/yok"; exit 1; }
+          ls -lh "${ARM64}/" "${X64}/"
+          test -s "${ARM64}/libhev.so" || { echo "HATA: libhev.so boş"; exit 1; }
 
       - name: Download GeoData
         run: |
