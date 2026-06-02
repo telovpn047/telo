@@ -85,17 +85,39 @@ jobs:
         continue-on-error: true
 
       - name: Build APK (universal)
-        working-directory: telovpn/android
-        run: ./gradlew assembleRelease
+        working-directory: telovpn
+        run: |
+          flutter build apk --release 2>&1 || {
+            # Flutter's copy task may not run in some AGP 8.x + Flutter 3.22 combos.
+            # Gradle still produces the APK at the standard Gradle output path.
+            FLUTTER_OUT="build/app/outputs/flutter-apk/app-release.apk"
+            SRC=""
+            [ -f "android/app/build/outputs/apk/release/app-release.apk" ] && \
+              SRC="android/app/build/outputs/apk/release/app-release.apk"
+            [ -z "$SRC" ] && \
+              SRC=$(find android/app/build/outputs -name "*.apk" 2>/dev/null | head -1)
+            [ -z "$SRC" ] && \
+              SRC=$(find build -name "*.apk" 2>/dev/null | head -1)
+            if [ -n "$SRC" ]; then
+              echo "APK found at $SRC — promoting to flutter-apk/"
+              mkdir -p "$(dirname "$FLUTTER_OUT")"
+              cp "$SRC" "$FLUTTER_OUT"
+              echo "Size: $(du -h "$FLUTTER_OUT" | cut -f1)"
+            else
+              echo "ERROR: Gradle produced no APK"
+              find android/app/build 2>/dev/null | head -40
+              exit 1
+            fi
+          }
 
       - name: List APKs
-        run: find telovpn/android/app/build/outputs -name "*.apk" 2>/dev/null || echo "No APKs found"
+        run: find telovpn/build/app/outputs -name "*.apk" 2>/dev/null || echo "No APKs found"
 
       - name: Upload universal APK
         uses: actions/upload-artifact@v4
         with:
           name: telovpn-release
-          path: telovpn/android/app/build/outputs/apk/release/app-release.apk
+          path: telovpn/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
 
       - name: APK summary
@@ -104,6 +126,6 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| APK | Size |" >> $GITHUB_STEP_SUMMARY
           echo "|-----|------|" >> $GITHUB_STEP_SUMMARY
-          for apk in telovpn/android/app/build/outputs/apk/release/*.apk; do
+          for apk in telovpn/build/app/outputs/flutter-apk/*.apk; do
             [ -f "$apk" ] && echo "| $(basename $apk) | $(du -h $apk | cut -f1) |" >> $GITHUB_STEP_SUMMARY
           done
