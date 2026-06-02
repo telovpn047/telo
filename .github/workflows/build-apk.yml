@@ -84,35 +84,17 @@ jobs:
         run: flutter analyze --no-fatal-infos
         continue-on-error: true
 
-      - name: Build APK (split per ABI)
-        working-directory: telovpn
-        run: flutter build apk --release --split-per-abi
-
-      - name: Build universal APK
+      - name: Build APK (universal)
         working-directory: telovpn
         run: flutter build apk --release
 
       - name: List APKs
-        run: ls -lh telovpn/build/app/outputs/flutter-apk/
-
-      - name: Upload arm64-v8a APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: telovpn-arm64-release
-          path: telovpn/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
-          if-no-files-found: error
-
-      - name: Upload x86_64 APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: telovpn-x64-release
-          path: telovpn/build/app/outputs/flutter-apk/app-x86_64-release.apk
-          if-no-files-found: error
+        run: find telovpn/build/app/outputs -name "*.apk" 2>/dev/null || echo "No APKs found"
 
       - name: Upload universal APK
         uses: actions/upload-artifact@v4
         with:
-          name: telovpn-universal-release
+          name: telovpn-release
           path: telovpn/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
 
