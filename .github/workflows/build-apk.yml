@@ -75,7 +75,9 @@ jobs:
           X64="telovpn/android/app/src/main/jniLibs/x86_64"
           NDK="${NDK_HOME}"
 
-          curl -fL "https://github.com/hev-project/hev-socks5-tunnel/archive/refs/heads/master.tar.gz" \
+          HEV_BRANCH=$(curl -fsSL "https://api.github.com/repos/hev-project/hev-socks5-tunnel" | jq -r '.default_branch')
+          echo "hev branch: ${HEV_BRANCH}"
+          curl -fL "https://github.com/hev-project/hev-socks5-tunnel/archive/refs/heads/${HEV_BRANCH}.tar.gz" \
             -o /tmp/hev.tar.gz
           tar -xzf /tmp/hev.tar.gz -C /tmp/
           mv /tmp/hev-socks5-tunnel-* /tmp/hev
