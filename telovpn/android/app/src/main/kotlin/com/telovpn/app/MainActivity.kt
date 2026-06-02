@@ -45,6 +45,13 @@ class MainActivity : FlutterActivity() {
                 "getTrafficStats" -> {
                     result.success(readTrafficStats())
                 }
+                "getLogs" -> {
+                    result.success(TeloVpnService.getLogs())
+                }
+                "clearLogs" -> {
+                    TeloVpnService.clearLogs()
+                    result.success(true)
+                }
                 else -> result.notImplemented()
             }
         }

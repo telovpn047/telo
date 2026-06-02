@@ -3,9 +3,43 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../services/settings_provider.dart';
 import '../theme/app_theme.dart';
+import 'log_screen.dart';
 
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  late TextEditingController _primaryDnsCtrl;
+  late TextEditingController _secondaryDnsCtrl;
+  late TextEditingController _fragmentLengthCtrl;
+  late TextEditingController _fragmentIntervalCtrl;
+  late TextEditingController _muxConcurrencyCtrl;
+
+  bool _initialized = false;
+
+  @override
+  void dispose() {
+    _primaryDnsCtrl.dispose();
+    _secondaryDnsCtrl.dispose();
+    _fragmentLengthCtrl.dispose();
+    _fragmentIntervalCtrl.dispose();
+    _muxConcurrencyCtrl.dispose();
+    super.dispose();
+  }
+
+  void _init(SettingsProvider s) {
+    if (_initialized) return;
+    _initialized = true;
+    _primaryDnsCtrl = TextEditingController(text: s.primaryDns);
+    _secondaryDnsCtrl = TextEditingController(text: s.secondaryDns);
+    _fragmentLengthCtrl = TextEditingController(text: s.fragmentLength);
+    _fragmentIntervalCtrl = TextEditingController(text: s.fragmentInterval);
+    _muxConcurrencyCtrl = TextEditingController(text: '${s.muxConcurrency}');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -13,9 +47,11 @@ class SettingsScreen extends StatelessWidget {
       appBar: AppBar(title: const Text('Sazlamalar')),
       body: Consumer<SettingsProvider>(
         builder: (context, settings, _) {
+          _init(settings);
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
+              // ── Görünüş ──────────────────────────────────────────────────
               _SectionHeader(title: 'Görünüş'),
               _SettingsCard(children: [
                 _SettingsTile(
@@ -36,6 +72,7 @@ class SettingsScreen extends StatelessWidget {
               ]),
               const SizedBox(height: 16),
 
+              // ── Birikme ───────────────────────────────────────────────────
               _SectionHeader(title: 'Birikme'),
               _SettingsCard(children: [
                 _SettingsTile(
@@ -64,32 +101,32 @@ class SettingsScreen extends StatelessWidget {
               ]),
               const SizedBox(height: 16),
 
-              // DNS section
+              // ── DNS ────────────────────────────────────────────────────────
               _SectionHeader(title: 'DNS'),
               _SettingsCard(children: [
-                _SettingsTile(
+                _InlineTextField(
                   icon: Icons.dns_rounded,
                   iconColor: AppTheme.primaryBlue,
-                  title: 'Esasy DNS',
-                  subtitle: settings.primaryDns,
-                  trailing: const Icon(Icons.edit_rounded, size: 16),
-                  onTap: () => _showDnsDialog(context, 'Esasy DNS', settings.primaryDns,
-                      (v) => settings.setPrimaryDns(v)),
+                  label: 'Esasy DNS',
+                  controller: _primaryDnsCtrl,
+                  keyboardType: TextInputType.url,
+                  hint: '8.8.8.8',
+                  onChanged: settings.setPrimaryDns,
                 ),
                 _Divider(),
-                _SettingsTile(
+                _InlineTextField(
                   icon: Icons.dns_outlined,
                   iconColor: const Color(0xFF6E6E93),
-                  title: 'Goşmaça DNS',
-                  subtitle: settings.secondaryDns,
-                  trailing: const Icon(Icons.edit_rounded, size: 16),
-                  onTap: () => _showDnsDialog(context, 'Goşmaça DNS', settings.secondaryDns,
-                      (v) => settings.setSecondaryDns(v)),
+                  label: 'Goşmaça DNS',
+                  controller: _secondaryDnsCtrl,
+                  keyboardType: TextInputType.url,
+                  hint: '1.1.1.1',
+                  onChanged: settings.setSecondaryDns,
                 ),
               ]),
               const SizedBox(height: 16),
 
-              // Fragment section
+              // ── Fragment ────────────────────────────────────────────────────
               _SectionHeader(title: 'Fragment (Bölek)'),
               _SettingsCard(children: [
                 _SettingsTile(
@@ -97,40 +134,35 @@ class SettingsScreen extends StatelessWidget {
                   iconColor: const Color(0xFF9C59FF),
                   title: 'Fragment',
                   subtitle: 'DPI engelleme üçin TCP bölekle',
-                  trailing: Switch(value: settings.enableFragment, onChanged: settings.setEnableFragment),
+                  trailing: Switch(
+                    value: settings.enableFragment,
+                    onChanged: settings.setEnableFragment,
+                  ),
                 ),
                 if (settings.enableFragment) ...[
                   _Divider(),
-                  _SettingsTile(
+                  _InlineTextField(
                     icon: Icons.straighten_rounded,
                     iconColor: const Color(0xFF9C59FF),
-                    title: 'Uzynlyk (Bytes)',
-                    subtitle: settings.fragmentLength,
-                    trailing: const Icon(Icons.edit_rounded, size: 16),
-                    onTap: () => _showTextDialog(
-                      context, 'Fragment Uzynlygy', settings.fragmentLength,
-                      'mysal: 100-200',
-                      (v) => settings.setFragmentLength(v),
-                    ),
+                    label: 'Uzynlyk (Bytes)',
+                    controller: _fragmentLengthCtrl,
+                    hint: '100-200',
+                    onChanged: settings.setFragmentLength,
                   ),
                   _Divider(),
-                  _SettingsTile(
+                  _InlineTextField(
                     icon: Icons.timelapse_rounded,
                     iconColor: const Color(0xFF9C59FF),
-                    title: 'Aralyk (ms)',
-                    subtitle: settings.fragmentInterval,
-                    trailing: const Icon(Icons.edit_rounded, size: 16),
-                    onTap: () => _showTextDialog(
-                      context, 'Fragment Aralyk', settings.fragmentInterval,
-                      'mysal: 10-20',
-                      (v) => settings.setFragmentInterval(v),
-                    ),
+                    label: 'Aralyk (ms)',
+                    controller: _fragmentIntervalCtrl,
+                    hint: '10-20',
+                    onChanged: settings.setFragmentInterval,
                   ),
                 ],
               ]),
               const SizedBox(height: 16),
 
-              // Mux section
+              // ── Mux ─────────────────────────────────────────────────────────
               _SectionHeader(title: 'Mux (Köpugurlylyk)'),
               _SettingsCard(children: [
                 _SettingsTile(
@@ -142,36 +174,24 @@ class SettingsScreen extends StatelessWidget {
                 ),
                 if (settings.enableMux) ...[
                   _Divider(),
-                  _SettingsTile(
+                  _InlineTextField(
                     icon: Icons.format_list_numbered_rounded,
                     iconColor: const Color(0xFF00B09B),
-                    title: 'Birikme Sany',
-                    subtitle: '${settings.muxConcurrency}',
-                    trailing: const Icon(Icons.edit_rounded, size: 16),
-                    onTap: () => _showConcurrencyDialog(context, settings),
+                    label: 'Birikme Sany',
+                    controller: _muxConcurrencyCtrl,
+                    hint: '8',
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    onChanged: (v) {
+                      final n = int.tryParse(v);
+                      if (n != null && n > 0) settings.setMuxConcurrency(n);
+                    },
                   ),
                 ],
               ]),
               const SizedBox(height: 16),
 
-              // Protocol section
-              _SectionHeader(title: 'Protokol'),
-              _SettingsCard(
-                children: [
-                  ...['AUTO', 'VLESS', 'VMESS', 'TROJAN', 'SHADOWSOCKS'].map((p) => Column(
-                        children: [
-                          _ProtocolTile(
-                            protocol: p,
-                            isSelected: settings.selectedProtocol == p,
-                            onTap: () => settings.setProtocol(p),
-                          ),
-                          if (p != 'SHADOWSOCKS') _Divider(),
-                        ],
-                      )),
-                ],
-              ),
-              const SizedBox(height: 16),
-
+              // ── Barada ───────────────────────────────────────────────────────
               _SectionHeader(title: 'Barada'),
               _SettingsCard(children: [
                 _SettingsTile(
@@ -189,6 +209,23 @@ class SettingsScreen extends StatelessWidget {
                   onTap: () {},
                 ),
               ]),
+              const SizedBox(height: 16),
+
+              // ── Log Görüntüleyici ─────────────────────────────────────────────
+              _SectionHeader(title: 'Günlük (Log)'),
+              _SettingsCard(children: [
+                _SettingsTile(
+                  icon: Icons.terminal_rounded,
+                  iconColor: const Color(0xFF82AAFF),
+                  title: 'VPN Logları',
+                  subtitle: 'Xray ve bağlantı kayıtlarını görüntüle',
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const LogScreen()),
+                  ),
+                ),
+              ]),
               const SizedBox(height: 32),
             ],
           );
@@ -196,89 +233,75 @@ class SettingsScreen extends StatelessWidget {
       ),
     );
   }
+}
 
-  void _showDnsDialog(BuildContext context, String title, String current, Function(String) onSave) {
-    final ctrl = TextEditingController(text: current);
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: ctrl,
-          keyboardType: TextInputType.url,
-          decoration: InputDecoration(
-            hintText: 'mysal: 8.8.8.8',
-            helperText: 'DoH üçin: https://dns.google/dns-query',
-          ),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Ýatyr')),
-          ElevatedButton(
-            onPressed: () {
-              onSave(ctrl.text);
-              Navigator.pop(context);
-            },
-            child: const Text('Sakla'),
-          ),
-        ],
-      ),
-    );
-  }
+// ── Inline text field tile ─────────────────────────────────────────────────────
 
-  void _showTextDialog(BuildContext context, String title, String current, String hint, Function(String) onSave) {
-    final ctrl = TextEditingController(text: current);
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: ctrl,
-          decoration: InputDecoration(hintText: hint),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Ýatyr')),
-          ElevatedButton(
-            onPressed: () {
-              onSave(ctrl.text);
-              Navigator.pop(context);
-            },
-            child: const Text('Sakla'),
-          ),
-        ],
-      ),
-    );
-  }
+class _InlineTextField extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String label;
+  final TextEditingController controller;
+  final String hint;
+  final TextInputType keyboardType;
+  final List<TextInputFormatter>? inputFormatters;
+  final ValueChanged<String> onChanged;
 
-  void _showConcurrencyDialog(BuildContext context, SettingsProvider settings) {
-    final ctrl = TextEditingController(text: '${settings.muxConcurrency}');
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Birikme Sany'),
-        content: TextField(
-          controller: ctrl,
-          keyboardType: TextInputType.number,
-          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-          decoration: const InputDecoration(hintText: '1-64', helperText: 'Maslahat: 8'),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Ýatyr')),
-          ElevatedButton(
-            onPressed: () {
-              final v = int.tryParse(ctrl.text) ?? 8;
-              settings.setMuxConcurrency(v);
-              Navigator.pop(context);
-            },
-            child: const Text('Sakla'),
+  const _InlineTextField({
+    required this.icon,
+    required this.iconColor,
+    required this.label,
+    required this.controller,
+    required this.hint,
+    required this.onChanged,
+    this.keyboardType = TextInputType.text,
+    this.inputFormatters,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        children: [
+          Container(
+            width: 36, height: 36,
+            decoration: BoxDecoration(
+              color: iconColor.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: iconColor, size: 18),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontSize: 13)),
+                const SizedBox(height: 4),
+                TextField(
+                  controller: controller,
+                  keyboardType: keyboardType,
+                  inputFormatters: inputFormatters,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 13),
+                  decoration: InputDecoration(
+                    hintText: hint,
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onChanged: onChanged,
+                ),
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 }
+
+// ── Reusable widgets ──────────────────────────────────────────────────────────
 
 class _SectionHeader extends StatelessWidget {
   final String title;
@@ -352,41 +375,6 @@ class _SettingsTile extends StatelessWidget {
           ? Text(subtitle!, style: Theme.of(context).textTheme.bodySmall)
           : null,
       trailing: trailing,
-    );
-  }
-}
-
-class _ProtocolTile extends StatelessWidget {
-  final String protocol;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  const _ProtocolTile({required this.protocol, required this.isSelected, required this.onTap});
-
-  String get _description {
-    switch (protocol) {
-      case 'AUTO': return 'Iň gowy protokoly saý';
-      case 'VLESS': return 'Ýeňil we çalt';
-      case 'VMESS': return 'Standart V2Ray';
-      case 'TROJAN': return 'HTTPS görnüşinde';
-      case 'SHADOWSOCKS': return 'Klassyk şifrlemek';
-      default: return '';
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      onTap: onTap,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-      title: Text(protocol,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: isSelected ? AppTheme.primaryBlue : null,
-              )),
-      subtitle: Text(_description, style: Theme.of(context).textTheme.bodySmall),
-      trailing: isSelected
-          ? const Icon(Icons.check_circle_rounded, color: AppTheme.primaryBlue)
-          : const Icon(Icons.circle_outlined, color: Colors.grey),
     );
   }
 }

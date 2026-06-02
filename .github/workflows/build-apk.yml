@@ -60,6 +60,27 @@ jobs:
           chmod +x "${ADIR}"/xray_*
           ls -lh "${ADIR}"/
 
+      - name: Download tun2socks binaries
+        run: |
+          T2S_RELEASE=$(curl -fsSL https://api.github.com/repos/xjasonlyu/tun2socks/releases/latest)
+          T2S_VERSION=$(echo "$T2S_RELEASE" | jq -r '.tag_name')
+          echo "tun2socks: ${T2S_VERSION}"
+
+          BASE="https://github.com/xjasonlyu/tun2socks/releases/download/${T2S_VERSION}"
+          ADIR="telovpn/android/app/src/main/assets/xray"
+
+          curl -fL "${BASE}/tun2socks-linux-arm64.zip" -o /tmp/t2s_arm64.zip
+          unzip -p /tmp/t2s_arm64.zip tun2socks > "${ADIR}/tun2socks_arm64"
+
+          if curl -fL "${BASE}/tun2socks-linux-amd64.zip" -o /tmp/t2s_x64.zip 2>/dev/null; then
+            unzip -p /tmp/t2s_x64.zip tun2socks > "${ADIR}/tun2socks_x64"
+          else
+            cp "${ADIR}/tun2socks_arm64" "${ADIR}/tun2socks_x64"
+          fi
+
+          chmod +x "${ADIR}"/tun2socks_*
+          ls -lh "${ADIR}"/
+
       - name: Download GeoData
         run: |
           curl -fL "https://github.com/v2fly/geoip/releases/latest/download/geoip.dat" \

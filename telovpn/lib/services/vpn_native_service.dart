@@ -65,4 +65,23 @@ class VpnNativeService {
       return {'rx': 0, 'tx': 0};
     }
   }
+
+  /// Get log lines from VPN service
+  static Future<List<String>> getLogs() async {
+    try {
+      final result = await _channel.invokeMethod<List<dynamic>>('getLogs');
+      return result?.map((e) => e.toString()).toList() ?? [];
+    } on PlatformException {
+      return [];
+    }
+  }
+
+  /// Clear log buffer
+  static Future<void> clearLogs() async {
+    try {
+      await _channel.invokeMethod('clearLogs');
+    } on PlatformException {
+      // ignore
+    }
+  }
 }
