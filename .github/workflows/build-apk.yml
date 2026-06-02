@@ -79,19 +79,32 @@ jobs:
 
           fetch_t2s() {
             # $1 = abi-candidates (boşlukla ayrılmış), $2 = hedef .so
+            # Zip içindeki binary adı sürüme göre değişir (ör. tun2socks-linux-arm64),
+            # bu yüzden zip'i açıp ikiliyi adından bağımsız buluyoruz.
             for name in $1; do
               if curl -fL "${BASE}/${name}.zip" -o /tmp/t2s.zip 2>/dev/null; then
-                unzip -p /tmp/t2s.zip tun2socks > "$2" && echo "indirildi: ${name}" && return 0
+                rm -rf /tmp/t2s_ex && mkdir -p /tmp/t2s_ex
+                unzip -o /tmp/t2s.zip -d /tmp/t2s_ex >/dev/null 2>&1 || continue
+                BIN=$(find /tmp/t2s_ex -type f -name 'tun2socks*' ! -name '*.zip' ! -name '*.md' | head -1)
+                [ -z "$BIN" ] && BIN=$(find /tmp/t2s_ex -type f ! -name '*.md' ! -iname 'license*' ! -name '*.txt' | head -1)
+                if [ -n "$BIN" ]; then
+                  cp "$BIN" "$2"
+                  echo "indirildi: ${name} (içeriden $(basename "$BIN"))"
+                  return 0
+                fi
               fi
             done
             return 1
           }
 
-          fetch_t2s "tun2socks-android-arm64 tun2socks-linux-arm64" "${ARM64}/libtun2socks.so"
+          fetch_t2s "tun2socks-android-arm64 tun2socks-linux-arm64" "${ARM64}/libtun2socks.so" \
+            || { echo "HATA: tun2socks arm64 indirilemedi"; exit 1; }
           fetch_t2s "tun2socks-android-amd64 tun2socks-linux-amd64" "${X64}/libtun2socks.so" \
             || cp "${ARM64}/libtun2socks.so" "${X64}/libtun2socks.so"
 
           ls -lh "${ARM64}/" "${X64}/"
+          # ikililerin gerçekten yerinde olduğunu doğrula
+          test -s "${ARM64}/libtun2socks.so" || { echo "HATA: libtun2socks.so boş"; exit 1; }
 
       - name: Download GeoData
         run: |
