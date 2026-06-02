@@ -198,12 +198,21 @@ class TeloVpnService : VpnService() {
                 }
                 log("tun2socks binary: ${t2sBin.absolutePath}")
 
+                // Android'de VpnService TUN fd'si O_CLOEXEC ile işaretlidir;
+                // exec() sırasında kapatılır ve child process onu göremez.
+                // ParcelFileDescriptor.fromFd() içinde dup() çağrısı yapar;
+                // POSIX gereği dup() FD_CLOEXEC bayrağını KOPYALAMAZ.
+                // Böylece child process (tun2socks) bu fd'yi devralabilir.
+                val inheritablePfd = android.os.ParcelFileDescriptor.fromFd(tunFd)
+                val inheritableFd = inheritablePfd.fd
+                log("TUN fd: $tunFd → inheritable fd (dup, no O_CLOEXEC): $inheritableFd")
+
                 val pb = ProcessBuilder(
                     t2sBin.absolutePath,
-                    "-device", "fd://$tunFd",
+                    "-device", "fd://$inheritableFd",
                     "-proxy",  "socks5://127.0.0.1:10808",
                     "-mtu",    "1500",
-                    "-loglevel", "warn"   // zerolog: trace/debug/info/warn/error/fatal
+                    "-loglevel", "warn"
                 ).apply {
                     redirectErrorStream(true)
                     directory(filesDir)
@@ -211,12 +220,15 @@ class TeloVpnService : VpnService() {
 
                 tun2socksProcess = pb.start()
 
+                // Üst süreçteki kopyayı kapat — tun2socks fork/exec ile devraldı
+                try { inheritablePfd.close() } catch (_: Exception) {}
+
                 serviceScope.launch(Dispatchers.IO) {
                     try {
                         tun2socksProcess?.inputStream?.bufferedReader()?.forEachLine { line ->
                             Log.d("tun2socks", line); addLog("[tun2socks] $line")
                         }
-                    } catch (_: Exception) { /* process öldürüldüğünde normal */ }
+                    } catch (_: Exception) { /* süreç öldürülünce beklenen */ }
                 }
 
                 delay(1000)
