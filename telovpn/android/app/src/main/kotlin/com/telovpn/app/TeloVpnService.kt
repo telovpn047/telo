@@ -46,8 +46,13 @@ class TeloVpnService : VpnService() {
     private val serviceScope = CoroutineScope(
         Dispatchers.IO + SupervisorJob() +
         CoroutineExceptionHandler { _, throwable ->
-            Log.e(TAG, "VPN scope uncaught exception: ${throwable.message}", throwable)
-            addLog("[VPN] KRITIK HATA: ${throwable.message}")
+            // Process öldürülürken stream kapanması beklenen bir durum — sessizce geç
+            val msg = throwable.message ?: ""
+            if (msg.contains("interrupted by close") || msg.contains("Stream closed")) {
+                return@CoroutineExceptionHandler
+            }
+            Log.e(TAG, "VPN scope uncaught: $msg", throwable)
+            addLog("[VPN] Hata (${throwable.javaClass.simpleName}): $msg")
         }
     )
 
@@ -146,10 +151,11 @@ class TeloVpnService : VpnService() {
 
                 // Xray stdout → log buffer
                 serviceScope.launch(Dispatchers.IO) {
-                    xrayProcess?.inputStream?.bufferedReader()?.forEachLine { line ->
-                        Log.d("Xray", line)
-                        addLog("[Xray] $line")
-                    }
+                    try {
+                        xrayProcess?.inputStream?.bufferedReader()?.forEachLine { line ->
+                            Log.d("Xray", line); addLog("[Xray] $line")
+                        }
+                    } catch (_: Exception) { /* process öldürüldüğünde normal */ }
                 }
 
                 // Xray'in SOCKS5 portunu açmasını bekle (en fazla ~10s)
@@ -197,7 +203,7 @@ class TeloVpnService : VpnService() {
                     "-device", "fd://$tunFd",
                     "-proxy",  "socks5://127.0.0.1:10808",
                     "-mtu",    "1500",
-                    "-loglevel", "warning"
+                    "-loglevel", "warn"   // zerolog: trace/debug/info/warn/error/fatal
                 ).apply {
                     redirectErrorStream(true)
                     directory(filesDir)
@@ -206,10 +212,11 @@ class TeloVpnService : VpnService() {
                 tun2socksProcess = pb.start()
 
                 serviceScope.launch(Dispatchers.IO) {
-                    tun2socksProcess?.inputStream?.bufferedReader()?.forEachLine { line ->
-                        Log.d("tun2socks", line)
-                        addLog("[tun2socks] $line")
-                    }
+                    try {
+                        tun2socksProcess?.inputStream?.bufferedReader()?.forEachLine { line ->
+                            Log.d("tun2socks", line); addLog("[tun2socks] $line")
+                        }
+                    } catch (_: Exception) { /* process öldürüldüğünde normal */ }
                 }
 
                 delay(1000)
