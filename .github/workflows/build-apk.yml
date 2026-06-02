@@ -64,47 +64,42 @@ jobs:
 
           ls -lh "${ARM64}/" "${X64}/"
 
-      - name: Download tun2socks binaries
-        run: |
-          # tun2socks ikilisi de jniLibs/<abi>/libtun2socks.so olarak paketlenir.
-          # xjasonlyu/tun2socks Go ile statik derlenir; Android için ayrı yapı yoksa
-          # linux-arm64 statik ikilisi nativeLibraryDir'den çalışır.
-          T2S_RELEASE=$(curl -fsSL https://api.github.com/repos/xjasonlyu/tun2socks/releases/latest)
-          T2S_VERSION=$(echo "$T2S_RELEASE" | jq -r '.tag_name')
-          echo "tun2socks: ${T2S_VERSION}"
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: false
 
-          BASE="https://github.com/xjasonlyu/tun2socks/releases/download/${T2S_VERSION}"
+      - name: Install Android NDK
+        run: |
+          echo "y" | ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager "ndk;25.2.9519653" 2>&1 | tail -5
+          echo "NDK_HOME=${ANDROID_SDK_ROOT}/ndk/25.2.9519653" >> $GITHUB_ENV
+
+      - name: Build libvpncore.so (tun2socks JNI)
+        run: |
           ARM64="telovpn/android/app/src/main/jniLibs/arm64-v8a"
           X64="telovpn/android/app/src/main/jniLibs/x86_64"
+          PREBUILT="${NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin"
 
-          fetch_t2s() {
-            # $1 = abi-candidates (boşlukla ayrılmış), $2 = hedef .so
-            # Zip içindeki binary adı sürüme göre değişir (ör. tun2socks-linux-arm64),
-            # bu yüzden zip'i açıp ikiliyi adından bağımsız buluyoruz.
-            for name in $1; do
-              if curl -fL "${BASE}/${name}.zip" -o /tmp/t2s.zip 2>/dev/null; then
-                rm -rf /tmp/t2s_ex && mkdir -p /tmp/t2s_ex
-                unzip -o /tmp/t2s.zip -d /tmp/t2s_ex >/dev/null 2>&1 || continue
-                BIN=$(find /tmp/t2s_ex -type f -name 'tun2socks*' ! -name '*.zip' ! -name '*.md' | head -1)
-                [ -z "$BIN" ] && BIN=$(find /tmp/t2s_ex -type f ! -name '*.md' ! -iname 'license*' ! -name '*.txt' | head -1)
-                if [ -n "$BIN" ]; then
-                  cp "$BIN" "$2"
-                  echo "indirildi: ${name} (içeriden $(basename "$BIN"))"
-                  return 0
-                fi
-              fi
-            done
-            return 1
-          }
+          cd telovpn/android/go_tun2socks
+          go mod tidy
 
-          fetch_t2s "tun2socks-android-arm64 tun2socks-linux-arm64" "${ARM64}/libtun2socks.so" \
-            || { echo "HATA: tun2socks arm64 indirilemedi"; exit 1; }
-          fetch_t2s "tun2socks-android-amd64 tun2socks-linux-amd64" "${X64}/libtun2socks.so" \
-            || cp "${ARM64}/libtun2socks.so" "${X64}/libtun2socks.so"
+          echo "Building libvpncore.so for arm64-v8a..."
+          CGO_ENABLED=1 GOOS=android GOARCH=arm64 \
+            CC="${PREBUILT}/aarch64-linux-android21-clang" \
+            go build -buildmode=c-shared -trimpath -ldflags="-s -w" \
+            -o "../app/src/main/jniLibs/arm64-v8a/libvpncore.so" .
+          echo "arm64-v8a: $(du -h ${ARM64}/libvpncore.so | cut -f1)"
 
-          ls -lh "${ARM64}/" "${X64}/"
-          # ikililerin gerçekten yerinde olduğunu doğrula
-          test -s "${ARM64}/libtun2socks.so" || { echo "HATA: libtun2socks.so boş"; exit 1; }
+          echo "Building libvpncore.so for x86_64..."
+          CGO_ENABLED=1 GOOS=android GOARCH=amd64 \
+            CC="${PREBUILT}/x86_64-linux-android21-clang" \
+            go build -buildmode=c-shared -trimpath -ldflags="-s -w" \
+            -o "../app/src/main/jniLibs/x86_64/libvpncore.so" .
+          echo "x86_64: $(du -h ${X64}/libvpncore.so | cut -f1)"
+
+          ls -lh "../app/src/main/jniLibs/arm64-v8a/" "../app/src/main/jniLibs/x86_64/"
+          test -s "../app/src/main/jniLibs/arm64-v8a/libvpncore.so" || { echo "HATA: libvpncore.so boş"; exit 1; }
 
       - name: Download GeoData
         run: |

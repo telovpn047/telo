@@ -8,7 +8,6 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.Build
-import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.*
@@ -40,9 +39,8 @@ class TeloVpnService : VpnService() {
         fun clearLogs() = logBuffer.clear()
     }
 
-    private var vpnInterface: ParcelFileDescriptor? = null
-    private var xrayProcess: Process?    = null
-    private var tun2socksProcess: Process? = null
+    private var vpnInterface: android.os.ParcelFileDescriptor? = null
+    private var xrayProcess: Process? = null
     private val serviceScope = CoroutineScope(
         Dispatchers.IO + SupervisorJob() +
         CoroutineExceptionHandler { _, throwable ->
@@ -107,8 +105,7 @@ class TeloVpnService : VpnService() {
                 return
             }
 
-            // 4. tun2socks köprüsü (TUN → SOCKS5)
-            //    Köprü olmadan TUN açık kalır, trafik hiçbir yere gitmez → internet kesilir
+            // 4. tun2socks JNI köprüsü (TUN → SOCKS5, in-process — no exec → no O_CLOEXEC issue)
             val tun2socksOk = startTun2Socks(vpnInterface!!.fd)
             if (!tun2socksOk) {
                 log("tun2socks başlatılamadı — VPN durduruluyor")
@@ -186,59 +183,17 @@ class TeloVpnService : VpnService() {
         }
     }
 
-    // ── tun2socks ────────────────────────────────────────────────────────────
+    // ── tun2socks (JNI in-process) ───────────────────────────────────────────
 
-    private suspend fun startTun2Socks(tunFd: Int): Boolean {
-        return withContext(Dispatchers.IO) {
-            try {
-                val t2sBin = nativeBinary("libtun2socks.so")
-                if (t2sBin == null || !t2sBin.exists()) {
-                    log("tun2socks binary bulunamadı (nativeLibraryDir): libtun2socks.so")
-                    return@withContext false
-                }
-                log("tun2socks binary: ${t2sBin.absolutePath}")
-
-                // Android'de VpnService TUN fd'si O_CLOEXEC ile işaretlidir;
-                // exec() sırasında kapatılır ve child process onu göremez.
-                // ParcelFileDescriptor.fromFd() içinde dup() çağrısı yapar;
-                // POSIX gereği dup() FD_CLOEXEC bayrağını KOPYALAMAZ.
-                // Böylece child process (tun2socks) bu fd'yi devralabilir.
-                val inheritablePfd = android.os.ParcelFileDescriptor.fromFd(tunFd)
-                val inheritableFd = inheritablePfd.fd
-                log("TUN fd: $tunFd → inheritable fd (dup, no O_CLOEXEC): $inheritableFd")
-
-                val pb = ProcessBuilder(
-                    t2sBin.absolutePath,
-                    "-device", "fd://$inheritableFd",
-                    "-proxy",  "socks5://127.0.0.1:10808",
-                    "-mtu",    "1500",
-                    "-loglevel", "warn"
-                ).apply {
-                    redirectErrorStream(true)
-                    directory(filesDir)
-                }
-
-                tun2socksProcess = pb.start()
-
-                // Üst süreçteki kopyayı kapat — tun2socks fork/exec ile devraldı
-                try { inheritablePfd.close() } catch (_: Exception) {}
-
-                serviceScope.launch(Dispatchers.IO) {
-                    try {
-                        tun2socksProcess?.inputStream?.bufferedReader()?.forEachLine { line ->
-                            Log.d("tun2socks", line); addLog("[tun2socks] $line")
-                        }
-                    } catch (_: Exception) { /* süreç öldürülünce beklenen */ }
-                }
-
-                delay(1000)
-                val alive = tun2socksProcess?.isAlive ?: false
-                log("tun2socks süreci hayatta: $alive")
-                alive
-            } catch (e: Exception) {
-                log("tun2socks başlatma istisnası: ${e.message}")
-                false
-            }
+    private fun startTun2Socks(tunFd: Int): Boolean {
+        return try {
+            log("tun2socks JNI başlatılıyor — fd=$tunFd")
+            val rc = VpnCore.startTun2Socks(tunFd, 1500, "socks5://127.0.0.1:10808")
+            log("tun2socks JNI sonucu: $rc")
+            rc == 0
+        } catch (e: Exception) {
+            log("tun2socks JNI istisnası (${e.javaClass.simpleName}): ${e.message}")
+            false
         }
     }
 
@@ -343,8 +298,7 @@ class TeloVpnService : VpnService() {
         isRunning = false
         log("VPN durduruluyor...")
         try {
-            tun2socksProcess?.destroyForcibly()
-            tun2socksProcess = null
+            try { VpnCore.stopTun2Socks() } catch (_: Exception) {}
             xrayProcess?.destroyForcibly()
             xrayProcess = null
             vpnInterface?.close()
