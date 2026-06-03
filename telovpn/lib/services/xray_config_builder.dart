@@ -14,7 +14,7 @@ class XrayConfigBuilder {
     String? fingerprint,
     String? publicKey,
     String? shortId,
-    bool allowInsecure = false,
+    String? mode,
     int localPort = 10808,
   }) {
     final outbound = <String, dynamic>{
@@ -46,7 +46,7 @@ class XrayConfigBuilder {
         fingerprint: fingerprint,
         publicKey: publicKey,
         shortId: shortId,
-        allowInsecure: allowInsecure,
+        mode: mode,
       ),
     };
     return _buildFullConfig(outbound, localPort);
@@ -63,7 +63,7 @@ class XrayConfigBuilder {
     String? sni,
     String? wsPath,
     String? wsHost,
-    bool allowInsecure = false,
+    String? mode,
     int localPort = 10808,
   }) {
     final outbound = <String, dynamic>{
@@ -90,7 +90,7 @@ class XrayConfigBuilder {
         sni: sni,
         wsPath: wsPath,
         wsHost: wsHost,
-        allowInsecure: allowInsecure,
+        mode: mode,
       ),
     };
     return _buildFullConfig(outbound, localPort);
@@ -103,7 +103,6 @@ class XrayConfigBuilder {
     required String password,
     String? sni,
     String network = 'tcp',
-    bool allowInsecure = false,
     int localPort = 10808,
   }) {
     final outbound = <String, dynamic>{
@@ -122,7 +121,6 @@ class XrayConfigBuilder {
         network: network,
         security: 'tls',
         sni: sni ?? address,
-        allowInsecure: allowInsecure,
       ),
     };
     return _buildFullConfig(outbound, localPort);
@@ -165,18 +163,17 @@ class XrayConfigBuilder {
     String? fingerprint,
     String? publicKey,
     String? shortId,
-    bool allowInsecure = false,
+    String? mode,
   }) {
     final settings = <String, dynamic>{
       'network': network,
       'security': security,
     };
 
-    // TLS settings
+    // TLS settings — allowInsecure removed in Xray 26.x
     if (security == 'tls') {
       settings['tlsSettings'] = {
         'serverName': sni ?? '',
-        'allowInsecure': allowInsecure,
         'fingerprint': fingerprint ?? 'chrome',
       };
     }
@@ -197,6 +194,31 @@ class XrayConfigBuilder {
       settings['wsSettings'] = {
         'path': wsPath ?? '/',
         'headers': wsHost != null ? {'Host': wsHost} : {},
+      };
+    }
+
+    // XHTTP settings (Xray 26+)
+    if (network == 'xhttp') {
+      settings['xhttpSettings'] = {
+        'path': wsPath ?? '/',
+        if (wsHost != null && wsHost.isNotEmpty) 'host': wsHost,
+        'mode': mode ?? 'auto',
+      };
+    }
+
+    // SplitHTTP settings (older Xray naming)
+    if (network == 'splithttp') {
+      settings['splithttpSettings'] = {
+        'path': wsPath ?? '/',
+        if (wsHost != null && wsHost.isNotEmpty) 'host': wsHost,
+      };
+    }
+
+    // HTTP Upgrade settings
+    if (network == 'httpupgrade') {
+      settings['httpupgradeSettings'] = {
+        'path': wsPath ?? '/',
+        if (wsHost != null && wsHost.isNotEmpty) 'host': wsHost,
       };
     }
 
@@ -349,7 +371,7 @@ class XrayConfigBuilder {
     final fingerprint = params['fp'];
     final publicKey = params['pbk'];
     final shortId = params['sid'];
-    final allowInsecure = params['allowInsecure'] == '1' || params['allowInsecure'] == 'true';
+    final mode = params['mode'];
 
     return buildVless(
       address: address,
@@ -363,7 +385,7 @@ class XrayConfigBuilder {
       fingerprint: fingerprint,
       publicKey: publicKey,
       shortId: shortId,
-      allowInsecure: allowInsecure,
+      mode: mode,
     );
   }
 
@@ -382,21 +404,18 @@ class XrayConfigBuilder {
       sni: json['sni'] ?? json['host'],
       wsPath: json['path'],
       wsHost: json['host'],
-      allowInsecure: json['allowInsecure'] == true || json['allowInsecure'] == 1 || json['tls_allowInsecure'] == true,
+      mode: json['mode'] as String?,
     );
   }
 
   static Map<String, dynamic> _parseTrojan(String uri) {
     final parsed = Uri.parse(uri.replaceFirst('trojan://', 'https://'));
-    final allowInsecure = parsed.queryParameters['allowInsecure'] == '1' ||
-        parsed.queryParameters['allowInsecure'] == 'true';
     return buildTrojan(
       address: parsed.host,
       port: parsed.port,
       password: parsed.userInfo,
       sni: parsed.queryParameters['sni'] ?? parsed.host,
       network: parsed.queryParameters['type'] ?? 'tcp',
-      allowInsecure: allowInsecure,
     );
   }
 

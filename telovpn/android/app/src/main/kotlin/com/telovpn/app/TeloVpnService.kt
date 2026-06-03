@@ -352,8 +352,14 @@ class TeloVpnService : VpnService() {
     }
 
     override fun onDestroy() {
-        serviceScope.launch { stopVpn() }
+        isRunning = false
         serviceScope.cancel()
+        // Senkron temizlik — scope iptal edildikten sonra coroutine çalıştırılamaz
+        try { VpnCore.stopTun2Socks() } catch (_: Exception) {}
+        xrayProcess?.destroyForcibly()
+        xrayProcess = null
+        vpnInterface?.close()
+        vpnInterface = null
         super.onDestroy()
     }
 }
