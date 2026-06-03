@@ -408,7 +408,12 @@ class XrayConfigBuilder {
     final extraRaw = params['extra'];
     Map<String, dynamic>? extra;
     if (extraRaw != null && extraRaw.isNotEmpty) {
-      try { extra = jsonDecode(extraRaw) as Map<String, dynamic>; } catch (_) {}
+      try {
+        // Marzban encodes JSON values with a leading '+' (e.g. :+1000000, ,+"key")
+        // which is invalid JSON. Strip the '+' after structural characters.
+        final cleaned = extraRaw.replaceAll(':+', ':').replaceAll(',+', ',');
+        extra = jsonDecode(cleaned) as Map<String, dynamic>;
+      } catch (_) {}
     }
 
     // allowInsecure — skip TLS cert verification (needed when SNI ≠ actual cert CN)
