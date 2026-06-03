@@ -67,7 +67,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.21'
           cache-dependency-path: telovpn/android/go_tun2socks/go.mod
 
       - name: Build libvpncore.so (tun2socks JNI)
