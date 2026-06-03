@@ -309,8 +309,9 @@ class TeloVpnService : VpnService() {
             vpnInterface = null
             try { iface?.close() } catch (_: Exception) {}
 
-            // Give goroutines a moment to process the fd-close error and begin exiting
-            delay(200)
+            // Give goroutines a moment to process the fd-close error and begin exiting.
+            // 400ms is more reliable on slower devices than 200ms.
+            delay(400)
 
             // Now stop tun2socks — goroutines are already unwinding
             try { VpnCore.stopTun2Socks() } catch (_: Exception) {}
