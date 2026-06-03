@@ -15,6 +15,8 @@ class XrayConfigBuilder {
     String? publicKey,
     String? shortId,
     String? mode,
+    List<String>? alpn,
+    Map<String, dynamic>? extra,
     int localPort = 10808,
   }) {
     final outbound = <String, dynamic>{
@@ -29,8 +31,6 @@ class XrayConfigBuilder {
               {
                 'id': uuid,
                 'encryption': 'none',
-                // Xray boş 'flow' string'ini reddedebilir; yalnızca Reality/XTLS
-                // kullanılırken bu anahtarı ekle.
                 if (security == 'reality') 'flow': 'xtls-rprx-vision',
               }
             ]
@@ -47,6 +47,8 @@ class XrayConfigBuilder {
         publicKey: publicKey,
         shortId: shortId,
         mode: mode,
+        alpn: alpn,
+        extra: extra,
       ),
     };
     return _buildFullConfig(outbound, localPort);
@@ -63,7 +65,10 @@ class XrayConfigBuilder {
     String? sni,
     String? wsPath,
     String? wsHost,
+    String? fingerprint,
     String? mode,
+    List<String>? alpn,
+    Map<String, dynamic>? extra,
     int localPort = 10808,
   }) {
     final outbound = <String, dynamic>{
@@ -90,7 +95,10 @@ class XrayConfigBuilder {
         sni: sni,
         wsPath: wsPath,
         wsHost: wsHost,
+        fingerprint: fingerprint,
         mode: mode,
+        alpn: alpn,
+        extra: extra,
       ),
     };
     return _buildFullConfig(outbound, localPort);
@@ -164,9 +172,14 @@ class XrayConfigBuilder {
     String? publicKey,
     String? shortId,
     String? mode,
+    List<String>? alpn,
+    Map<String, dynamic>? extra,
   }) {
     // Xray 26.x renamed "splithttp" to "xhttp"; normalize so old subscriptions work.
     final effectiveNetwork = network == 'splithttp' ? 'xhttp' : network;
+
+    // Empty string fingerprint == not set (e.g. alpn=h3 servers omit fp intentionally)
+    final effectiveFp = (fingerprint != null && fingerprint.isNotEmpty) ? fingerprint : null;
 
     final settings = <String, dynamic>{
       'network': effectiveNetwork,
@@ -177,7 +190,8 @@ class XrayConfigBuilder {
     if (security == 'tls') {
       settings['tlsSettings'] = {
         'serverName': sni ?? '',
-        'fingerprint': fingerprint ?? 'chrome',
+        if (effectiveFp != null) 'fingerprint': effectiveFp,
+        if (alpn != null && alpn.isNotEmpty) 'alpn': alpn,
       };
     }
 
@@ -185,7 +199,7 @@ class XrayConfigBuilder {
     if (security == 'reality') {
       settings['realitySettings'] = {
         'serverName': sni ?? '',
-        'fingerprint': fingerprint ?? 'chrome',
+        'fingerprint': effectiveFp ?? 'chrome',
         'publicKey': publicKey ?? '',
         'shortId': shortId ?? '',
         'spiderX': '/',
@@ -200,12 +214,14 @@ class XrayConfigBuilder {
       };
     }
 
-    // XHTTP settings — covers both "xhttp" and legacy "splithttp" URIs
+    // XHTTP settings — covers both "xhttp" and legacy "splithttp" URIs.
+    // "extra" carries packet-up tuning: scMaxEachPostBytes, xPaddingBytes, etc.
     if (effectiveNetwork == 'xhttp') {
       settings['xhttpSettings'] = {
-        'path': wsPath ?? '/',
+        'path': wsPath ?? '',        // servers often use empty path for xhttp
         if (wsHost != null && wsHost.isNotEmpty) 'host': wsHost,
         'mode': mode ?? 'auto',
+        if (extra != null) 'extra': extra,
       };
     }
 
@@ -368,6 +384,19 @@ class XrayConfigBuilder {
     final shortId = params['sid'];
     final mode = params['mode'];
 
+    // alpn — comma-separated list, e.g. "h3" or "h2,http/1.1"
+    final alpnRaw = params['alpn'];
+    final alpn = (alpnRaw != null && alpnRaw.isNotEmpty)
+        ? alpnRaw.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList()
+        : null;
+
+    // extra — URL-encoded JSON with XHTTP packet-up tuning parameters
+    final extraRaw = params['extra'];
+    Map<String, dynamic>? extra;
+    if (extraRaw != null && extraRaw.isNotEmpty) {
+      try { extra = jsonDecode(extraRaw) as Map<String, dynamic>; } catch (_) {}
+    }
+
     return buildVless(
       address: address,
       port: port,
@@ -381,6 +410,8 @@ class XrayConfigBuilder {
       publicKey: publicKey,
       shortId: shortId,
       mode: mode,
+      alpn: alpn,
+      extra: extra,
     );
   }
 
@@ -389,6 +420,7 @@ class XrayConfigBuilder {
     final decoded = utf8.decode(base64Url.decode(base64Url.normalize(b64)));
     final json = jsonDecode(decoded) as Map<String, dynamic>;
 
+    final alpnRaw = json['alpn'] as String?;
     return buildVmess(
       address: json['add'] ?? '',
       port: int.tryParse(json['port'].toString()) ?? 443,
@@ -399,7 +431,11 @@ class XrayConfigBuilder {
       sni: json['sni'] ?? json['host'],
       wsPath: json['path'],
       wsHost: json['host'],
+      fingerprint: json['fp'] as String?,
       mode: json['mode'] as String?,
+      alpn: (alpnRaw != null && alpnRaw.isNotEmpty)
+          ? alpnRaw.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList()
+          : null,
     );
   }
 
