@@ -64,29 +64,12 @@ jobs:
 
           ls -lh "${ARM64}/" "${X64}/"
 
-      - name: Download hev-socks5-tunnel
+      - name: Verify hev-socks5-tunnel binary
         run: |
           ARM64="telovpn/android/app/src/main/jniLibs/arm64-v8a"
           X64="telovpn/android/app/src/main/jniLibs/x86_64"
-
-          # Repo: heiher/hev-socks5-tunnel (pre-built binaries committed in libs/)
-          HEV_BRANCH=$(curl -fsSL "https://api.github.com/repos/heiher/hev-socks5-tunnel" \
-            | jq -r '.default_branch')
-          echo "hev branch: ${HEV_BRANCH}"
-          curl -fL "https://github.com/heiher/hev-socks5-tunnel/archive/refs/heads/${HEV_BRANCH}.tar.gz" \
-            -o /tmp/hev.tar.gz
-          tar -xzf /tmp/hev.tar.gz -C /tmp/
-          mv /tmp/hev-socks5-tunnel-* /tmp/hev
-
-          ARM64_SO=$(find /tmp/hev/libs/arm64-v8a -name "*.so" 2>/dev/null | head -1)
-          X64_SO=$(find /tmp/hev/libs/x86_64 -name "*.so" 2>/dev/null | head -1)
-          echo "arm64: $ARM64_SO"
-
-          cp "$ARM64_SO" "${ARM64}/libhev.so"
-          [ -n "$X64_SO" ] && cp "$X64_SO" "${X64}/libhev.so" || cp "${ARM64}/libhev.so" "${X64}/libhev.so"
-
-          ls -lh "${ARM64}/" "${X64}/"
-          test -s "${ARM64}/libhev.so" || { echo "HATA: libhev.so boş"; exit 1; }
+          ls -lh "${ARM64}/libhev.so" "${X64}/libhev.so"
+          test -s "${ARM64}/libhev.so" || { echo "HATA: libhev.so eksik/boş"; exit 1; }
 
       - name: Download GeoData
         run: |
