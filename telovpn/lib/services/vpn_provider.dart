@@ -308,9 +308,22 @@ class VpnProvider extends ChangeNotifier {
         try {
           name = utf8.decode(base64.decode(base64.normalize(profileTitle)));
         } catch (_) {
-          final m = RegExp(r'filename[*]?=["\']?([^"\';\r\n]+)["\']?').firstMatch(profileTitle);
-          if (m != null) {
-            name = m.group(1)!.replaceAll(RegExp(r'\.(txt|conf|sub)$'), '');
+          // Try to parse filename from Content-Disposition header
+          final rawName = profileTitle
+              .split(';')
+              .map((p) => p.trim())
+              .where((p) => p.toLowerCase().startsWith('filename'))
+              .map((p) {
+                final eq = p.indexOf('=');
+                return eq >= 0
+                    ? p.substring(eq + 1).trim().replaceAll('"', '').replaceAll("'", '')
+                    : '';
+              })
+              .where((s) => s.isNotEmpty)
+              .firstOrNull;
+          if (rawName != null) {
+            name = Uri.decodeComponent(rawName)
+                .replaceAll(RegExp(r'\.(txt|conf|sub)$'), '');
           }
         }
       }
