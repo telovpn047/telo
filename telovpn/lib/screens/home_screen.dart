@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../services/vpn_provider.dart';
@@ -8,6 +9,36 @@ import '../theme/app_theme.dart';
 import '../widgets/connect_button.dart';
 import '../widgets/stats_card.dart';
 import '../widgets/server_selector_card.dart';
+import 'servers_screen.dart' show SmartAddSheet;
+
+String? _extractFlag(String name) {
+  final runes = name.runes.toList();
+  if (runes.length >= 2 &&
+      runes[0] >= 0x1F1E6 && runes[0] <= 0x1F1FF &&
+      runes[1] >= 0x1F1E6 && runes[1] <= 0x1F1FF) {
+    return String.fromCharCodes(runes.take(2));
+  }
+  return null;
+}
+
+Future<void> _openSmartAdd(BuildContext context) async {
+  String clipboard = '';
+  try {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    clipboard = data?.text?.trim() ?? '';
+  } catch (_) {}
+  if (!context.mounted) return;
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Theme.of(context).brightness == Brightness.dark
+        ? AppTheme.darkSurface
+        : AppTheme.lightSurface,
+    shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+    builder: (_) => SmartAddSheet(initialText: clipboard),
+  );
+}
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -43,8 +74,9 @@ class HomeScreen extends StatelessWidget {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.notifications_outlined),
-            onPressed: () {},
+            icon: const Icon(Icons.add_rounded),
+            tooltip: 'Ekle',
+            onPressed: () => _openSmartAdd(context),
           ),
         ],
       ),
@@ -251,14 +283,25 @@ class _QuickServerTile extends StatelessWidget {
             padding: const EdgeInsets.all(14),
             child: Row(
               children: [
-                Text(server.flagEmoji,
-                    style: const TextStyle(fontSize: 28)),
+                Builder(builder: (context) {
+                  final leadingFlag = _extractFlag(server.name);
+                  return Text(
+                    leadingFlag ?? server.flagEmoji,
+                    style: TextStyle(fontSize: leadingFlag != null ? 36.0 : 28.0),
+                  );
+                }),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(server.name,
+                      Text(
+                          () {
+                            final f = _extractFlag(server.name);
+                            return f != null
+                                ? server.name.substring(f.length).trimLeft()
+                                : server.name;
+                          }(),
                           style: Theme.of(context)
                               .textTheme
                               .titleMedium),

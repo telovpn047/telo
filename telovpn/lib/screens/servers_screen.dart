@@ -143,7 +143,7 @@ class _ServersScreenState extends State<ServersScreen>
           ? AppTheme.darkSurface : AppTheme.lightSurface,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (_) => _SmartAddSheet(initialText: initialText),
+      builder: (_) => SmartAddSheet(initialText: initialText),
     );
   }
 
@@ -282,17 +282,29 @@ class _ServersScreenState extends State<ServersScreen>
   }
 }
 
-// ── Smart Add Sheet ──────────────────────────────────────────────────────────
+// ── Flag emoji helper ────────────────────────────────────────────────────────
 
-class _SmartAddSheet extends StatefulWidget {
-  final String initialText;
-  const _SmartAddSheet({this.initialText = ''});
-
-  @override
-  State<_SmartAddSheet> createState() => _SmartAddSheetState();
+String? _extractFlag(String name) {
+  final runes = name.runes.toList();
+  if (runes.length >= 2 &&
+      runes[0] >= 0x1F1E6 && runes[0] <= 0x1F1FF &&
+      runes[1] >= 0x1F1E6 && runes[1] <= 0x1F1FF) {
+    return String.fromCharCodes(runes.take(2));
+  }
+  return null;
 }
 
-class _SmartAddSheetState extends State<_SmartAddSheet> {
+// ── Smart Add Sheet ──────────────────────────────────────────────────────────
+
+class SmartAddSheet extends StatefulWidget {
+  final String initialText;
+  const SmartAddSheet({super.key, this.initialText = ''});
+
+  @override
+  State<SmartAddSheet> createState() => _SmartAddSheetState();
+}
+
+class _SmartAddSheetState extends State<SmartAddSheet> {
   late TextEditingController _ctrl;
   String? _type; // 'sub' | 'servers' | null
   int _count = 0;
@@ -712,12 +724,13 @@ class _SubscriptionGroupCardState extends State<_SubscriptionGroupCard> {
     final err = await vpn.refreshSubscription(widget.sub.url);
     if (mounted) {
       setState(() => _isRefreshing = false);
-      if (err != null) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(err),
-          backgroundColor: AppTheme.disconnected,
-        ));
-      }
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(err ?? '${widget.sub.name} güncellendi ✓'),
+        backgroundColor: err == null ? AppTheme.connected : AppTheme.disconnected,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ));
     }
   }
 
@@ -915,11 +928,18 @@ class _ServerTile extends StatelessWidget {
 
   Widget _buildContent(BuildContext context, VpnProvider vpn, bool isDark,
       String pingQuality, String pingLabel, bool isBest) {
+    final leadingFlag = _extractFlag(server.name);
+    final displayEmoji = leadingFlag ?? server.flagEmoji;
+    final displayName = leadingFlag != null
+        ? server.name.substring(leadingFlag.length).trimLeft()
+        : server.name;
+    final emojiSize = leadingFlag != null ? 36.0 : 28.0;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       child: Row(
         children: [
-          Text(server.flagEmoji, style: const TextStyle(fontSize: 28)),
+          Text(displayEmoji, style: TextStyle(fontSize: emojiSize)),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -928,7 +948,7 @@ class _ServerTile extends StatelessWidget {
                 Row(
                   children: [
                     Flexible(
-                      child: Text(server.name,
+                      child: Text(displayName,
                           style: Theme.of(context).textTheme.titleMedium?.copyWith(
                                 color: isSelected ? AppTheme.primaryBlue : null,
                               ),
