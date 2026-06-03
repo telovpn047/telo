@@ -5,6 +5,41 @@ import '../services/vpn_provider.dart';
 import '../theme/app_theme.dart';
 import '../screens/servers_screen.dart';
 
+Widget _buildServerAvatar(String serverName, {double size = 44}) {
+  final runes = serverName.runes.toList();
+  int skip = 0;
+  while (skip < runes.length && runes[skip] >= 0x1F1E6 && runes[skip] <= 0x1F1FF) skip++;
+  final clean = String.fromCharCodes(runes.skip(skip)).trim();
+  final letter = clean.isNotEmpty ? clean[0].toUpperCase() : 'S';
+  final gradients = [
+    [const Color(0xFF0381FE), const Color(0xFF4DAAFF)],
+    [const Color(0xFF34C759), const Color(0xFF30D158)],
+    [const Color(0xFFFF9500), const Color(0xFFFFCC00)],
+    [const Color(0xFFAF52DE), const Color(0xFFBF5AF2)],
+    [const Color(0xFFFF2D55), const Color(0xFFFF6B81)],
+    [const Color(0xFF00C7BE), const Color(0xFF5AC8FA)],
+  ];
+  final idx = serverName.hashCode.abs() % gradients.length;
+  final g = gradients[idx];
+  return Container(
+    width: size, height: size,
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(size * 0.27),
+      gradient: LinearGradient(
+        colors: [g[0], g[1]],
+        begin: Alignment.topLeft, end: Alignment.bottomRight,
+      ),
+    ),
+    child: Center(
+      child: Text(letter,
+          style: TextStyle(
+            color: Colors.white, fontSize: size * 0.42,
+            fontWeight: FontWeight.w800, height: 1,
+          )),
+    ),
+  );
+}
+
 class ServerSelectorCard extends StatelessWidget {
   final VpnServer? server;
   final bool isConnected;
@@ -37,23 +72,20 @@ class ServerSelectorCard extends StatelessWidget {
           padding: const EdgeInsets.all(18),
           child: Row(
             children: [
-              // Flag
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  color: isDark
-                      ? AppTheme.darkBg
-                      : AppTheme.lightBg,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Center(
-                  child: Text(
-                    server?.flagEmoji ?? '🌐',
-                    style: const TextStyle(fontSize: 28),
-                  ),
-                ),
-              ),
+              // Server avatar
+              server != null
+                  ? _buildServerAvatar(server!.name, size: 52)
+                  : Container(
+                      width: 52, height: 52,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(14),
+                        gradient: const LinearGradient(
+                          colors: [AppTheme.primaryBlue, AppTheme.accentBlue],
+                          begin: Alignment.topLeft, end: Alignment.bottomRight,
+                        ),
+                      ),
+                      child: const Icon(Icons.language_rounded, color: Colors.white, size: 26),
+                    ),
               const SizedBox(width: 14),
               // Server info
               Expanded(
