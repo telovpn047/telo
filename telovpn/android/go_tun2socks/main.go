@@ -28,6 +28,7 @@ func Java_com_telovpn_app_VpnCore_startTun2Socks(env *C.JNIEnv, cls C.jclass, tu
 
 //export Java_com_telovpn_app_VpnCore_stopTun2Socks
 func Java_com_telovpn_app_VpnCore_stopTun2Socks(env *C.JNIEnv, cls C.jclass) {
+	defer func() { recover() }()
 	engine.Stop()
 }
 

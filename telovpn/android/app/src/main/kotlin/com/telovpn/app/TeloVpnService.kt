@@ -303,6 +303,7 @@ class TeloVpnService : VpnService() {
         log("VPN durduruluyor...")
         try {
             try { VpnCore.stopTun2Socks() } catch (_: Exception) {}
+            delay(300) // tun2socks goroutine'lerinin fd'yi bırakması için bekle
             xrayProcess?.destroyForcibly()
             xrayProcess = null
             vpnInterface?.close()
