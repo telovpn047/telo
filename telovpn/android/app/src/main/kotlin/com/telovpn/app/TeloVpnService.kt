@@ -302,12 +302,21 @@ class TeloVpnService : VpnService() {
         isRunning = false
         log("VPN durduruluyor...")
         try {
+            // Close TUN fd FIRST — this unblocks Go goroutines blocked in Read(fd).
+            // If we call engine.Stop() first, goroutines stay blocked until fd is closed
+            // anyway, but there's a window where they may access a reused fd → SIGSEGV.
+            val iface = vpnInterface
+            vpnInterface = null
+            try { iface?.close() } catch (_: Exception) {}
+
+            // Give goroutines a moment to process the fd-close error and begin exiting
+            delay(200)
+
+            // Now stop tun2socks — goroutines are already unwinding
             try { VpnCore.stopTun2Socks() } catch (_: Exception) {}
-            delay(300) // tun2socks goroutine'lerinin fd'yi bırakması için bekle
+
             xrayProcess?.destroyForcibly()
             xrayProcess = null
-            vpnInterface?.close()
-            vpnInterface = null
         } catch (e: Exception) {
             log("Durdurma hatası: ${e.message}")
         }
@@ -354,12 +363,13 @@ class TeloVpnService : VpnService() {
     override fun onDestroy() {
         isRunning = false
         serviceScope.cancel()
-        // Senkron temizlik — scope iptal edildikten sonra coroutine çalıştırılamaz
+        // Senkron temizlik — close fd first (unblocks goroutines), then stop engine
+        val iface = vpnInterface
+        vpnInterface = null
+        try { iface?.close() } catch (_: Exception) {}
         try { VpnCore.stopTun2Socks() } catch (_: Exception) {}
         xrayProcess?.destroyForcibly()
         xrayProcess = null
-        vpnInterface?.close()
-        vpnInterface = null
         super.onDestroy()
     }
 }

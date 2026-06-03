@@ -165,8 +165,11 @@ class XrayConfigBuilder {
     String? shortId,
     String? mode,
   }) {
+    // Xray 26.x renamed "splithttp" to "xhttp"; normalize so old subscriptions work.
+    final effectiveNetwork = network == 'splithttp' ? 'xhttp' : network;
+
     final settings = <String, dynamic>{
-      'network': network,
+      'network': effectiveNetwork,
       'security': security,
     };
 
@@ -189,16 +192,16 @@ class XrayConfigBuilder {
       };
     }
 
-    // WebSocket settings
-    if (network == 'ws') {
+    // WebSocket settings — use standalone "host" field (Xray 26.x deprecated headers.Host)
+    if (effectiveNetwork == 'ws') {
       settings['wsSettings'] = {
         'path': wsPath ?? '/',
-        'headers': wsHost != null ? {'Host': wsHost} : {},
+        if (wsHost != null && wsHost.isNotEmpty) 'host': wsHost,
       };
     }
 
-    // XHTTP settings (Xray 26+)
-    if (network == 'xhttp') {
+    // XHTTP settings — covers both "xhttp" and legacy "splithttp" URIs
+    if (effectiveNetwork == 'xhttp') {
       settings['xhttpSettings'] = {
         'path': wsPath ?? '/',
         if (wsHost != null && wsHost.isNotEmpty) 'host': wsHost,
@@ -206,16 +209,8 @@ class XrayConfigBuilder {
       };
     }
 
-    // SplitHTTP settings (older Xray naming)
-    if (network == 'splithttp') {
-      settings['splithttpSettings'] = {
-        'path': wsPath ?? '/',
-        if (wsHost != null && wsHost.isNotEmpty) 'host': wsHost,
-      };
-    }
-
     // HTTP Upgrade settings
-    if (network == 'httpupgrade') {
+    if (effectiveNetwork == 'httpupgrade') {
       settings['httpupgradeSettings'] = {
         'path': wsPath ?? '/',
         if (wsHost != null && wsHost.isNotEmpty) 'host': wsHost,
@@ -223,14 +218,14 @@ class XrayConfigBuilder {
     }
 
     // gRPC settings
-    if (network == 'grpc') {
+    if (effectiveNetwork == 'grpc') {
       settings['grpcSettings'] = {
         'serviceName': wsPath ?? '',
       };
     }
 
     // HTTP/2 settings
-    if (network == 'h2') {
+    if (effectiveNetwork == 'h2') {
       settings['httpSettings'] = {
         'path': wsPath ?? '/',
         'host': wsHost != null ? [wsHost] : [],
