@@ -64,12 +64,43 @@ jobs:
 
           ls -lh "${ARM64}/" "${X64}/"
 
-      - name: Verify hev-socks5-tunnel binary
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: telovpn/android/go_tun2socks/go.mod
+
+      - name: Build libvpncore.so (tun2socks JNI)
         run: |
+          # NDK: Flutter/Android SDK usually ships NDK — find whichever is installed
+          NDK_DIR=$(ls -d "$ANDROID_SDK_ROOT/ndk/"* 2>/dev/null | sort -V | tail -1)
+          if [ -z "$NDK_DIR" ]; then
+            echo "NDK not found, installing..."
+            echo "y" | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
+              "ndk;25.1.8937393" 2>&1 | tail -3
+            NDK_DIR="$ANDROID_SDK_ROOT/ndk/25.1.8937393"
+          fi
+          echo "NDK: $NDK_DIR"
+          TOOLCHAIN="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/bin"
+
           ARM64="telovpn/android/app/src/main/jniLibs/arm64-v8a"
           X64="telovpn/android/app/src/main/jniLibs/x86_64"
-          ls -lh "${ARM64}/libhev.so" "${X64}/libhev.so"
-          test -s "${ARM64}/libhev.so" || { echo "HATA: libhev.so eksik/boş"; exit 1; }
+
+          cd telovpn/android/go_tun2socks
+
+          echo "--- arm64-v8a ---"
+          CGO_ENABLED=1 GOOS=android GOARCH=arm64 \
+            CC="$TOOLCHAIN/aarch64-linux-android21-clang" \
+            go build -buildmode=c-shared -o "../../../$ARM64/libvpncore.so" . \
+            2>&1
+          ls -lh "../../../$ARM64/libvpncore.so"
+
+          echo "--- x86_64 ---"
+          CGO_ENABLED=1 GOOS=android GOARCH=amd64 \
+            CC="$TOOLCHAIN/x86_64-linux-android21-clang" \
+            go build -buildmode=c-shared -o "../../../$X64/libvpncore.so" . \
+            2>&1
+          ls -lh "../../../$X64/libvpncore.so"
 
       - name: Download GeoData
         run: |
