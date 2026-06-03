@@ -17,6 +17,7 @@ class XrayConfigBuilder {
     String? mode,
     List<String>? alpn,
     Map<String, dynamic>? extra,
+    bool allowInsecure = false,
     int localPort = 10808,
   }) {
     final outbound = <String, dynamic>{
@@ -49,6 +50,7 @@ class XrayConfigBuilder {
         mode: mode,
         alpn: alpn,
         extra: extra,
+        allowInsecure: allowInsecure,
       ),
     };
     return _buildFullConfig(outbound, localPort);
@@ -69,6 +71,7 @@ class XrayConfigBuilder {
     String? mode,
     List<String>? alpn,
     Map<String, dynamic>? extra,
+    bool allowInsecure = false,
     int localPort = 10808,
   }) {
     final outbound = <String, dynamic>{
@@ -99,6 +102,7 @@ class XrayConfigBuilder {
         mode: mode,
         alpn: alpn,
         extra: extra,
+        allowInsecure: allowInsecure,
       ),
     };
     return _buildFullConfig(outbound, localPort);
@@ -174,6 +178,7 @@ class XrayConfigBuilder {
     String? mode,
     List<String>? alpn,
     Map<String, dynamic>? extra,
+    bool allowInsecure = false,
   }) {
     // Xray 26.x renamed "splithttp" to "xhttp"; normalize so old subscriptions work.
     final effectiveNetwork = network == 'splithttp' ? 'xhttp' : network;
@@ -195,12 +200,12 @@ class XrayConfigBuilder {
       if (effectiveAlpn.isEmpty) effectiveAlpn = null;
     }
 
-    // TLS settings — allowInsecure removed in Xray 26.x
     if (security == 'tls') {
       settings['tlsSettings'] = {
         'serverName': sni ?? '',
         if (effectiveFp != null) 'fingerprint': effectiveFp,
         if (effectiveAlpn != null && effectiveAlpn.isNotEmpty) 'alpn': effectiveAlpn,
+        if (allowInsecure) 'allowInsecure': true,
       };
     }
 
@@ -406,6 +411,10 @@ class XrayConfigBuilder {
       try { extra = jsonDecode(extraRaw) as Map<String, dynamic>; } catch (_) {}
     }
 
+    // allowInsecure — skip TLS cert verification (needed when SNI ≠ actual cert CN)
+    final aiRaw = params['allowInsecure'] ?? params['insecure'];
+    final allowInsecure = aiRaw == '1' || aiRaw?.toLowerCase() == 'true';
+
     return buildVless(
       address: address,
       port: port,
@@ -421,6 +430,7 @@ class XrayConfigBuilder {
       mode: mode,
       alpn: alpn,
       extra: extra,
+      allowInsecure: allowInsecure,
     );
   }
 

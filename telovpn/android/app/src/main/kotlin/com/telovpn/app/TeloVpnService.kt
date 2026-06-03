@@ -362,14 +362,15 @@ class TeloVpnService : VpnService() {
 
     override fun onDestroy() {
         isRunning = false
-        serviceScope.cancel()
-        // Senkron temizlik — close fd first (unblocks goroutines), then stop engine
+        // Close fd BEFORE cancelling scope so stopVpn()'s delay(200) coroutine
+        // (if still running) has already unblocked the Go goroutines.
         val iface = vpnInterface
         vpnInterface = null
         try { iface?.close() } catch (_: Exception) {}
         try { VpnCore.stopTun2Socks() } catch (_: Exception) {}
         xrayProcess?.destroyForcibly()
         xrayProcess = null
+        serviceScope.cancel()
         super.onDestroy()
     }
 }
