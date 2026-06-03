@@ -21,6 +21,41 @@ String? _extractFlag(String name) {
   return null;
 }
 
+Widget _buildServerAvatar(String serverName, {double size = 44}) {
+  final runes = serverName.runes.toList();
+  int skip = 0;
+  while (skip < runes.length && runes[skip] >= 0x1F1E6 && runes[skip] <= 0x1F1FF) skip++;
+  final clean = String.fromCharCodes(runes.skip(skip)).trim();
+  final letter = clean.isNotEmpty ? clean[0].toUpperCase() : 'S';
+  final gradients = [
+    [const Color(0xFF0381FE), const Color(0xFF4DAAFF)],
+    [const Color(0xFF34C759), const Color(0xFF30D158)],
+    [const Color(0xFFFF9500), const Color(0xFFFFCC00)],
+    [const Color(0xFFAF52DE), const Color(0xFFBF5AF2)],
+    [const Color(0xFFFF2D55), const Color(0xFFFF6B81)],
+    [const Color(0xFF00C7BE), const Color(0xFF5AC8FA)],
+  ];
+  final idx = serverName.hashCode.abs() % gradients.length;
+  final g = gradients[idx];
+  return Container(
+    width: size, height: size,
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(size * 0.27),
+      gradient: LinearGradient(
+        colors: [g[0], g[1]],
+        begin: Alignment.topLeft, end: Alignment.bottomRight,
+      ),
+    ),
+    child: Center(
+      child: Text(letter,
+          style: TextStyle(
+            color: Colors.white, fontSize: size * 0.42,
+            fontWeight: FontWeight.w800, height: 1,
+          )),
+    ),
+  );
+}
+
 Future<void> _openSmartAdd(BuildContext context) async {
   String clipboard = '';
   try {
@@ -169,31 +204,46 @@ class _StatusBanner extends StatelessWidget {
         icon = Icons.lock_open_rounded;
     }
 
-    return Container(
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeInOut,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
         color: color.withOpacity(isDark ? 0.15 : 0.1),
         borderRadius: BorderRadius.circular(50),
-        border: Border.all(color: color.withOpacity(0.3), width: 1),
+        border: Border.all(color: color.withOpacity(0.35), width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.15),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          status == VpnStatus.connecting || status == VpnStatus.disconnecting
-              ? SizedBox(
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(
-                      strokeWidth: 2, color: color),
-                )
-              : Icon(icon, color: color, size: 14),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 300),
+            child: status == VpnStatus.connecting || status == VpnStatus.disconnecting
+                ? SizedBox(
+                    key: const ValueKey('spinner'),
+                    width: 14, height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: color),
+                  )
+                : Icon(icon, key: ValueKey(icon), color: color, size: 14),
+          ),
           const SizedBox(width: 8),
-          Text(
-            text,
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: color,
-                  fontWeight: FontWeight.w700,
-                ),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 300),
+            child: Text(
+              text,
+              key: ValueKey(text),
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: color,
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
           ),
         ],
       ),
@@ -248,15 +298,31 @@ class _QuickServers extends StatelessWidget {
       children: [
         Padding(
           padding: const EdgeInsets.only(left: 4, bottom: 12),
-          child: Text(
-            'Halanlarym',
-            style: Theme.of(context)
-                .textTheme
-                .titleMedium
-                ?.copyWith(fontWeight: FontWeight.w700),
-          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Container(
+              padding: const EdgeInsets.all(5),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFCC00).withOpacity(0.15),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.star_rounded, size: 14, color: Color(0xFFFFCC00)),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              'Halanlarym',
+              style: Theme.of(context)
+                  .textTheme
+                  .titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w700),
+            ),
+          ]),
         ),
-        ...servers.map((server) => _QuickServerTile(server: server)),
+        ...servers.asMap().entries.map((e) => _QuickServerTile(server: e.value)
+            .animate()
+            .fadeIn(delay: Duration(milliseconds: e.key * 60), duration: 350.ms)
+            .slideX(begin: 0.15, end: 0,
+                delay: Duration(milliseconds: e.key * 60), duration: 350.ms,
+                curve: Curves.easeOutCubic)),
       ],
     );
   }
@@ -283,13 +349,7 @@ class _QuickServerTile extends StatelessWidget {
             padding: const EdgeInsets.all(14),
             child: Row(
               children: [
-                Builder(builder: (context) {
-                  final leadingFlag = _extractFlag(server.name);
-                  return Text(
-                    leadingFlag ?? server.flagEmoji,
-                    style: TextStyle(fontSize: leadingFlag != null ? 36.0 : 28.0),
-                  );
-                }),
+                _buildServerAvatar(server.name),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -302,9 +362,8 @@ class _QuickServerTile extends StatelessWidget {
                                 ? server.name.substring(f.length).trimLeft()
                                 : server.name;
                           }(),
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleMedium),
+                          style: Theme.of(context).textTheme.titleMedium,
+                          overflow: TextOverflow.ellipsis, maxLines: 1),
                       Text(server.country,
                           style: Theme.of(context).textTheme.bodySmall),
                     ],

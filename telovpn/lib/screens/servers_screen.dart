@@ -294,6 +294,41 @@ String? _extractFlag(String name) {
   return null;
 }
 
+Widget _buildServerAvatar(String serverName, {double size = 44}) {
+  final runes = serverName.runes.toList();
+  int skip = 0;
+  while (skip < runes.length && runes[skip] >= 0x1F1E6 && runes[skip] <= 0x1F1FF) skip++;
+  final clean = String.fromCharCodes(runes.skip(skip)).trim();
+  final letter = clean.isNotEmpty ? clean[0].toUpperCase() : 'S';
+  final gradients = [
+    [const Color(0xFF0381FE), const Color(0xFF4DAAFF)],
+    [const Color(0xFF34C759), const Color(0xFF30D158)],
+    [const Color(0xFFFF9500), const Color(0xFFFFCC00)],
+    [const Color(0xFFAF52DE), const Color(0xFFBF5AF2)],
+    [const Color(0xFFFF2D55), const Color(0xFFFF6B81)],
+    [const Color(0xFF00C7BE), const Color(0xFF5AC8FA)],
+  ];
+  final idx = serverName.hashCode.abs() % gradients.length;
+  final g = gradients[idx];
+  return Container(
+    width: size, height: size,
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(size * 0.27),
+      gradient: LinearGradient(
+        colors: [g[0], g[1]],
+        begin: Alignment.topLeft, end: Alignment.bottomRight,
+      ),
+    ),
+    child: Center(
+      child: Text(letter,
+          style: TextStyle(
+            color: Colors.white, fontSize: size * 0.42,
+            fontWeight: FontWeight.w800, height: 1,
+          )),
+    ),
+  );
+}
+
 // ── Smart Add Sheet ──────────────────────────────────────────────────────────
 
 class SmartAddSheet extends StatefulWidget {
@@ -532,174 +567,287 @@ class _SubscriptionGroupCardState extends State<_SubscriptionGroupCard> {
     final cardColor = isDark ? AppTheme.darkCard : AppTheme.lightCard;
     final subtext = isDark ? AppTheme.darkSubtext : AppTheme.lightSubtext;
     final dividerColor = isDark ? AppTheme.darkDivider : AppTheme.lightDivider;
+    final serverCount = widget.servers.length;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
         color: cardColor,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.18 : 0.06),
+            blurRadius: 14,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // ── Header ───────────────────────────────────────────────────────
-          InkWell(
+          ClipRRect(
             borderRadius: BorderRadius.vertical(
-              top: const Radius.circular(16),
-              bottom: _expanded ? Radius.zero : const Radius.circular(16),
+              top: const Radius.circular(20),
+              bottom: (!_expanded && !sub.hasInfo) ? const Radius.circular(20) : Radius.zero,
             ),
-            onTap: () => setState(() => _expanded = !_expanded),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(14, 12, 4, 10),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(sub.name,
-                            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
-                            overflow: TextOverflow.ellipsis,
-                            maxLines: 1),
-                        const SizedBox(height: 2),
-                        Text(
-                          '${_fmtDateTime(sub.lastUpdated)}  •  Auto: ${sub.autoUpdateHours}h',
-                          style: TextStyle(fontSize: 11, color: subtext),
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    AppTheme.primaryBlue.withOpacity(isDark ? 0.14 : 0.08),
+                    Colors.transparent,
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+              child: InkWell(
+                onTap: () => setState(() => _expanded = !_expanded),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 14, 4, 14),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 42, height: 42,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          gradient: const LinearGradient(
+                            colors: [AppTheme.primaryBlue, AppTheme.accentBlue],
+                            begin: Alignment.topLeft, end: Alignment.bottomRight,
+                          ),
                         ),
-                      ],
-                    ),
-                  ),
-                  // Refresh
-                  if (_isRefreshing)
-                    const Padding(
-                      padding: EdgeInsets.all(9),
-                      child: SizedBox(width: 18, height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2)),
-                    )
-                  else
-                    IconButton(
-                      icon: const Icon(Icons.refresh_rounded, size: 20),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                      tooltip: 'Täzele',
-                      onPressed: _doRefresh,
-                    ),
-                  // Ping
-                  IconButton(
-                    icon: const Icon(Icons.network_ping_rounded, size: 20),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                    tooltip: 'Ping ölç',
-                    onPressed: () =>
-                        Provider.of<VpnProvider>(context, listen: false).pingAllServers(),
-                  ),
-                  // More
-                  PopupMenuButton<String>(
-                    iconSize: 20,
-                    padding: EdgeInsets.zero,
-                    tooltip: 'Seçenekler',
-                    onSelected: _handleMenu,
-                    itemBuilder: (_) => [
-                      const PopupMenuItem(value: 'rename',
-                          child: Text('Adını Değiştir')),
-                      const PopupMenuItem(value: 'interval',
-                          child: Text('Güncelleme Aralığı')),
-                      PopupMenuItem(
-                        value: 'delete',
-                        child: Text('Sil',
-                            style: TextStyle(color: AppTheme.disconnected)),
+                        child: const Icon(Icons.rss_feed_rounded, color: Colors.white, size: 20),
                       ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(sub.name,
+                                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                                overflow: TextOverflow.ellipsis,
+                                maxLines: 1),
+                            const SizedBox(height: 3),
+                            Row(children: [
+                              Icon(Icons.access_time_rounded, size: 11, color: subtext),
+                              const SizedBox(width: 3),
+                              Text(
+                                _fmtDateTime(sub.lastUpdated),
+                                style: TextStyle(fontSize: 11, color: subtext),
+                              ),
+                            ]),
+                          ],
+                        ),
+                      ),
+                      if (_isRefreshing)
+                        const Padding(
+                          padding: EdgeInsets.all(9),
+                          child: SizedBox(width: 18, height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2)),
+                        )
+                      else
+                        IconButton(
+                          icon: const Icon(Icons.refresh_rounded, size: 20),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                          tooltip: 'Täzele',
+                          onPressed: _doRefresh,
+                        ),
+                      IconButton(
+                        icon: const Icon(Icons.network_ping_rounded, size: 20),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                        tooltip: 'Ping ölç',
+                        onPressed: () =>
+                            Provider.of<VpnProvider>(context, listen: false).pingAllServers(),
+                      ),
+                      PopupMenuButton<String>(
+                        iconSize: 20,
+                        padding: EdgeInsets.zero,
+                        tooltip: 'Seçenekler',
+                        onSelected: _handleMenu,
+                        itemBuilder: (_) => [
+                          const PopupMenuItem(value: 'rename', child: Text('Adını Değiştir')),
+                          const PopupMenuItem(value: 'interval', child: Text('Güncelleme Aralığı')),
+                          PopupMenuItem(
+                            value: 'delete',
+                            child: Text('Sil', style: TextStyle(color: AppTheme.disconnected)),
+                          ),
+                        ],
+                      ),
+                      AnimatedRotation(
+                        turns: _expanded ? 0.0 : -0.25,
+                        duration: const Duration(milliseconds: 250),
+                        child: Icon(Icons.expand_more_rounded, size: 20, color: subtext),
+                      ),
+                      const SizedBox(width: 4),
                     ],
                   ),
-                  // Chevron
-                  AnimatedRotation(
-                    turns: _expanded ? 0.0 : -0.25,
-                    duration: const Duration(milliseconds: 200),
-                    child: Icon(Icons.expand_more_rounded, size: 20, color: subtext),
-                  ),
-                  const SizedBox(width: 4),
-                ],
+                ),
               ),
             ),
           ),
 
-          // ── Usage / expiry bar ────────────────────────────────────────────
+          // ── Subscription Info Card ────────────────────────────────────────
           if (sub.hasInfo)
             Padding(
-              padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
-              child: Row(
-                children: [
-                  const Icon(Icons.info_outline_rounded,
-                      size: 15, color: AppTheme.primaryBlue),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+              child: Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? AppTheme.primaryBlue.withOpacity(0.09)
+                      : AppTheme.primaryBlue.withOpacity(0.05),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: AppTheme.primaryBlue.withOpacity(0.2),
+                    width: 1,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
                       children: [
-                        if (!sub.isUnlimited) ...[
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(4),
+                        Container(
+                          padding: const EdgeInsets.all(7),
+                          decoration: BoxDecoration(
+                            color: AppTheme.primaryBlue.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(9),
+                          ),
+                          child: const Icon(Icons.data_usage_rounded,
+                              size: 16, color: AppTheme.primaryBlue),
+                        ),
+                        const SizedBox(width: 10),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Traffik',
+                                style: TextStyle(fontSize: 10, color: subtext,
+                                    fontWeight: FontWeight.w500)),
+                            if (sub.usageText.isNotEmpty)
+                              Text(sub.usageText,
+                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                            if (sub.isUnlimited && sub.usageText.isEmpty)
+                              Text('Çäksiz', style: TextStyle(fontSize: 13,
+                                  fontWeight: FontWeight.w700, color: AppTheme.connected)),
+                          ],
+                        ),
+                        const Spacer(),
+                        if (sub.expireDate != null) ...[
+                          Container(
+                            padding: const EdgeInsets.all(7),
+                            decoration: BoxDecoration(
+                              color: ((sub.daysLeft ?? 99) < 7
+                                  ? AppTheme.disconnected
+                                  : AppTheme.connected).withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(9),
+                            ),
+                            child: Icon(Icons.calendar_today_rounded,
+                                size: 16,
+                                color: (sub.daysLeft ?? 99) < 7
+                                    ? AppTheme.disconnected
+                                    : AppTheme.connected),
+                          ),
+                          const SizedBox(width: 10),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text('Bitiş', style: TextStyle(fontSize: 10,
+                                  color: subtext, fontWeight: FontWeight.w500)),
+                              Text(
+                                sub.daysLeft != null
+                                    ? '${sub.daysLeft} gün'
+                                    : _fmtDate(sub.expireDate!),
+                                style: TextStyle(
+                                  fontSize: 13, fontWeight: FontWeight.w700,
+                                  color: (sub.daysLeft ?? 99) < 7
+                                      ? AppTheme.disconnected : null,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                    if (!sub.isUnlimited) ...[
+                      const SizedBox(height: 12),
+                      Row(children: [
+                        Expanded(
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(6),
                             child: LinearProgressIndicator(
                               value: sub.usageRatio,
-                              minHeight: 5,
+                              minHeight: 8,
                               backgroundColor: dividerColor,
                               valueColor: AlwaysStoppedAnimation(_usageColor(sub.usageRatio)),
                             ),
                           ),
-                          const SizedBox(height: 3),
-                        ],
-                        Row(
-                          children: [
-                            if (sub.usageText.isNotEmpty)
-                              Text(sub.usageText,
-                                  style: const TextStyle(
-                                      fontSize: 11, fontWeight: FontWeight.w600)),
-                            const Spacer(),
-                            if (sub.expireDate != null)
-                              Text(
-                                'Bitiş: ${_fmtDate(sub.expireDate!)}',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w500,
-                                  color: (sub.daysLeft ?? 99) < 7
-                                      ? AppTheme.disconnected
-                                      : subtext,
-                                ),
-                              ),
-                          ],
                         ),
-                      ],
-                    ),
-                  ),
-                ],
+                        const SizedBox(width: 10),
+                        Text(
+                          '${(sub.usageRatio * 100).toStringAsFixed(0)}%',
+                          style: TextStyle(
+                            fontSize: 12, fontWeight: FontWeight.w700,
+                            color: _usageColor(sub.usageRatio),
+                          ),
+                        ),
+                      ]),
+                    ],
+                  ],
+                ),
               ),
             ),
 
+          // ── Server list separator ────────────────────────────────────────
+          if (_expanded && widget.servers.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 16, 14, 8),
+              child: Row(children: [
+                Expanded(child: Divider(height: 1, thickness: 0.5, color: dividerColor)),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.dns_rounded, size: 12, color: subtext),
+                    const SizedBox(width: 4),
+                    Text('$serverCount serwer',
+                        style: TextStyle(fontSize: 11, color: subtext, fontWeight: FontWeight.w600)),
+                  ]),
+                ),
+                Expanded(child: Divider(height: 1, thickness: 0.5, color: dividerColor)),
+              ]),
+            ),
+
           // ── Server list ───────────────────────────────────────────────────
-          if (_expanded && widget.servers.isNotEmpty) ...[
-            Divider(height: 1, thickness: 0.5, color: dividerColor),
-            ...widget.servers.asMap().entries.map((entry) {
-              final i = entry.key;
-              final server = entry.value;
-              final isLast = i == widget.servers.length - 1;
-              return Column(
-                children: [
-                  Consumer<VpnProvider>(
-                    builder: (ctx, vpn, _) => _ServerTile(
-                      server: server,
-                      isSelected: vpn.selectedServer?.id == server.id,
-                      isPicker: widget.isPicker,
-                      grouped: true,
-                    ),
-                  ),
-                  if (!isLast)
-                    Divider(
-                        height: 1, thickness: 0.5,
-                        indent: 60, color: dividerColor),
-                ],
-              );
-            }),
-          ],
+          AnimatedSize(
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOutCubic,
+            child: _expanded && widget.servers.isNotEmpty
+                ? Column(
+                    children: [
+                      ...widget.servers.asMap().entries.map((entry) {
+                        final i = entry.key;
+                        final server = entry.value;
+                        final isLast = i == widget.servers.length - 1;
+                        return Column(children: [
+                          Consumer<VpnProvider>(
+                            builder: (ctx, vpn, _) => _ServerTile(
+                              server: server,
+                              isSelected: vpn.selectedServer?.id == server.id,
+                              isPicker: widget.isPicker,
+                              grouped: true,
+                            ),
+                          ),
+                          if (!isLast)
+                            Divider(height: 1, thickness: 0.5, indent: 72, color: dividerColor),
+                        ]);
+                      }),
+                      const SizedBox(height: 8),
+                    ],
+                  )
+                : const SizedBox.shrink(),
+          ),
         ],
       ),
     );
@@ -929,17 +1077,15 @@ class _ServerTile extends StatelessWidget {
   Widget _buildContent(BuildContext context, VpnProvider vpn, bool isDark,
       String pingQuality, String pingLabel, bool isBest) {
     final leadingFlag = _extractFlag(server.name);
-    final displayEmoji = leadingFlag ?? server.flagEmoji;
     final displayName = leadingFlag != null
         ? server.name.substring(leadingFlag.length).trimLeft()
         : server.name;
-    final emojiSize = leadingFlag != null ? 36.0 : 28.0;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       child: Row(
         children: [
-          Text(displayEmoji, style: TextStyle(fontSize: emojiSize)),
+          _buildServerAvatar(server.name, size: 44),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
