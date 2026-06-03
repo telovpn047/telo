@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/vpn_server.dart';
+import '../models/subscription.dart';
 import 'vpn_native_service.dart';
 import 'xray_config_builder.dart';
 import 'ping_service.dart';
@@ -14,17 +15,16 @@ class VpnProvider extends ChangeNotifier {
   VpnStats _stats = const VpnStats();
   Timer? _statsTimer;
   Timer? _durationTimer;
+  Timer? _autoUpdateTimer;
   Duration _connectionDuration = Duration.zero;
   final List<VpnServer> _servers = [];
   String? _errorMessage;
 
-  // Ping / Auto-select state
   bool _isPinging = false;
   final Map<String, int> _pingResults = {};
   String? _pingError;
 
-  // Subscription state
-  final List<String> _subscriptionUrls = [];
+  final List<SubscriptionInfo> _subscriptions = [];
   bool _isRefreshingSubscriptions = false;
   String? _subscriptionError;
 
@@ -38,7 +38,8 @@ class VpnProvider extends ChangeNotifier {
   bool get isPinging => _isPinging;
   Map<String, int> get pingResults => Map.unmodifiable(_pingResults);
   String? get pingError => _pingError;
-  List<String> get subscriptionUrls => List.unmodifiable(_subscriptionUrls);
+  List<SubscriptionInfo> get subscriptions => List.unmodifiable(_subscriptions);
+  List<String> get subscriptionUrls => _subscriptions.map((s) => s.url).toList();
   bool get isRefreshingSubscriptions => _isRefreshingSubscriptions;
   String? get subscriptionError => _subscriptionError;
 
@@ -59,17 +60,19 @@ class VpnProvider extends ChangeNotifier {
   bool get isConnecting => _status == VpnStatus.connecting;
   bool get isDisconnected => _status == VpnStatus.disconnected;
 
+  VpnProvider() {
+    _loadSavedData().then((_) => _startAutoUpdateTimer());
+  }
+
   Future<void> pingAllServers() async {
     if (_isPinging) return;
     _isPinging = true;
     _pingError = null;
     notifyListeners();
-
     try {
       final serverList = _servers
           .map((s) => {'id': s.id, 'host': s.address, 'port': s.port})
           .toList();
-
       await PingService.pingAll(
         serverList,
         onResult: (id, ms) {
@@ -84,7 +87,6 @@ class VpnProvider extends ChangeNotifier {
     } catch (e) {
       _pingError = 'Ping ölçüm hatasy: $e';
     }
-
     _isPinging = false;
     notifyListeners();
   }
@@ -94,12 +96,9 @@ class VpnProvider extends ChangeNotifier {
     String protocolFilter = 'AUTO',
   }) async {
     if (_isPinging) return null;
-
     await pingAllServers();
-
     VpnServer? best;
     int bestPing = 999999;
-
     for (final server in _servers) {
       if (protocolFilter != 'AUTO' &&
           server.protocol.toUpperCase() != protocolFilter) continue;
@@ -109,19 +108,11 @@ class VpnProvider extends ChangeNotifier {
         best = server;
       }
     }
-
     if (best != null) {
       selectServer(best);
-      if (connectAfter && isDisconnected) {
-        await toggleConnection();
-      }
+      if (connectAfter && isDisconnected) await toggleConnection();
     }
-
     return best;
-  }
-
-  VpnProvider() {
-    _loadSavedData();
   }
 
   Future<void> _loadSavedData() async {
@@ -132,22 +123,29 @@ class VpnProvider extends ChangeNotifier {
       final savedCustom = prefs.getStringList('custom_servers') ?? [];
       for (final json in savedCustom) {
         final server = VpnServer.fromJson(jsonDecode(json));
-        if (!_servers.any((s) => s.id == server.id)) {
-          _servers.add(server);
-        }
+        if (!_servers.any((s) => s.id == server.id)) _servers.add(server);
       }
 
-      // Load subscription URLs
-      final urls = prefs.getStringList('subscription_urls') ?? [];
-      _subscriptionUrls.addAll(urls);
+      // Load subscription metadata (new format), fallback to old URL list
+      final metaList = prefs.getStringList('subscription_metadata');
+      if (metaList != null && metaList.isNotEmpty) {
+        for (final json in metaList) {
+          try { _subscriptions.add(SubscriptionInfo.fromJson(jsonDecode(json))); }
+          catch (e) { debugPrint('sub metadata parse error: $e'); }
+        }
+      } else {
+        // Migration: old format was just a list of URL strings
+        final urls = prefs.getStringList('subscription_urls') ?? [];
+        for (final url in urls) {
+          _subscriptions.add(SubscriptionInfo.fromUrl(url));
+        }
+      }
 
       // Load subscription servers
       final savedSub = prefs.getStringList('subscription_servers') ?? [];
       for (final json in savedSub) {
         final server = VpnServer.fromJson(jsonDecode(json));
-        if (!_servers.any((s) => s.id == server.id)) {
-          _servers.add(server);
-        }
+        if (!_servers.any((s) => s.id == server.id)) _servers.add(server);
       }
 
       if (_servers.isNotEmpty) _selectedServer = _servers.first;
@@ -168,15 +166,43 @@ class VpnProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> _saveSubscriptionServers() async {
+  Future<void> _saveSubscriptionData() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(
+        'subscription_metadata',
+        _subscriptions.map((s) => jsonEncode(s.toJson())).toList(),
+      );
       final sub = _servers.where((s) => s.isFromSubscription).toList();
-      await prefs.setStringList('subscription_servers',
-          sub.map((s) => jsonEncode(s.toJson())).toList());
-      await prefs.setStringList('subscription_urls', _subscriptionUrls);
+      await prefs.setStringList(
+          'subscription_servers', sub.map((s) => jsonEncode(s.toJson())).toList());
+      // Keep old key for backward compat
+      await prefs.setStringList('subscription_urls', _subscriptions.map((s) => s.url).toList());
     } catch (e) {
       debugPrint('Error saving subscription data: $e');
+    }
+  }
+
+  // ─── Auto-update timer ───────────────────────────────────────────────────
+
+  void _startAutoUpdateTimer() {
+    _autoUpdateTimer?.cancel();
+    _autoUpdateTimer = Timer.periodic(const Duration(minutes: 1), (_) => _checkAutoUpdate());
+  }
+
+  Future<void> _checkAutoUpdate() async {
+    final now = DateTime.now();
+    bool didUpdate = false;
+    for (final sub in List<SubscriptionInfo>.from(_subscriptions)) {
+      if (now.difference(sub.lastUpdated).inHours >= sub.autoUpdateHours) {
+        _servers.removeWhere((s) => s.subscriptionUrl == sub.url);
+        await _fetchAndParseSubscription(sub.url);
+        didUpdate = true;
+      }
+    }
+    if (didUpdate) {
+      await _saveSubscriptionData();
+      notifyListeners();
     }
   }
 
@@ -188,31 +214,30 @@ class VpnProvider extends ChangeNotifier {
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       return 'URL http:// veya https:// ile başlamalı';
     }
-    if (_subscriptionUrls.contains(url)) return 'Bu abuna zaten mevcut';
+    if (_subscriptions.any((s) => s.url == url)) return 'Bu abuna zaten mevcut';
 
     final result = await _fetchAndParseSubscription(url);
     if (result != null) return result;
 
-    _subscriptionUrls.add(url);
-    await _saveSubscriptionServers();
+    await _saveSubscriptionData();
     notifyListeners();
     return null;
   }
 
   Future<void> removeSubscription(String url) async {
-    _subscriptionUrls.remove(url);
+    _subscriptions.removeWhere((s) => s.url == url);
     _servers.removeWhere((s) => s.subscriptionUrl == url);
     if (_selectedServer?.subscriptionUrl == url) {
       _selectedServer = _servers.isNotEmpty ? _servers.first : null;
     }
-    await _saveSubscriptionServers();
+    await _saveSubscriptionData();
     notifyListeners();
   }
 
   Future<String?> refreshSubscription(String url) async {
     _servers.removeWhere((s) => s.subscriptionUrl == url);
     final result = await _fetchAndParseSubscription(url);
-    await _saveSubscriptionServers();
+    await _saveSubscriptionData();
     notifyListeners();
     return result;
   }
@@ -222,31 +247,78 @@ class VpnProvider extends ChangeNotifier {
     _isRefreshingSubscriptions = true;
     _subscriptionError = null;
     notifyListeners();
-
-    for (final url in List<String>.from(_subscriptionUrls)) {
-      await refreshSubscription(url);
+    for (final sub in List<SubscriptionInfo>.from(_subscriptions)) {
+      await refreshSubscription(sub.url);
     }
-
     _isRefreshingSubscriptions = false;
+    notifyListeners();
+  }
+
+  Future<void> setSubscriptionAutoUpdate(String url, int hours) async {
+    final idx = _subscriptions.indexWhere((s) => s.url == url);
+    if (idx == -1) return;
+    _subscriptions[idx] = _subscriptions[idx].copyWith(autoUpdateHours: hours);
+    await _saveSubscriptionData();
+    notifyListeners();
+  }
+
+  Future<void> renameSubscription(String url, String newName) async {
+    final idx = _subscriptions.indexWhere((s) => s.url == url);
+    if (idx == -1) return;
+    _subscriptions[idx] = _subscriptions[idx].copyWith(name: newName);
+    await _saveSubscriptionData();
     notifyListeners();
   }
 
   Future<String?> _fetchAndParseSubscription(String url) async {
     try {
-      final response = await http.get(Uri.parse(url)).timeout(
-        const Duration(seconds: 15),
-      );
+      final response = await http.get(
+        Uri.parse(url),
+        headers: {'User-Agent': 'TeloVPN/1.0 (Android; Xray)'},
+      ).timeout(const Duration(seconds: 15));
+
       if (response.statusCode != 200) {
         return 'HTTP ${response.statusCode} hatasy';
       }
 
-      String body = response.body.trim();
-      // Try base64 decode first (standard subscription format)
-      try {
-        body = utf8.decode(base64.decode(base64.normalize(body)));
-      } catch (_) {
-        // Not base64, use raw text
+      // Parse Subscription-UserInfo: upload=X; download=Y; total=Z; expire=T
+      int upload = 0, download = 0, total = 0;
+      int? expireAt;
+      final userInfo = response.headers['subscription-userinfo'] ?? '';
+      if (userInfo.isNotEmpty) {
+        for (final part in userInfo.split(';')) {
+          final kv = part.trim().split('=');
+          if (kv.length != 2) continue;
+          final v = int.tryParse(kv[1].trim()) ?? 0;
+          switch (kv[0].trim().toLowerCase()) {
+            case 'upload':   upload = v;   break;
+            case 'download': download = v; break;
+            case 'total':    total = v;    break;
+            case 'expire':   expireAt = v; break;
+          }
+        }
       }
+
+      // Parse subscription name from headers
+      final existingIdx = _subscriptions.indexWhere((s) => s.url == url);
+      String name = existingIdx >= 0 ? _subscriptions[existingIdx].name : '';
+      final profileTitle = response.headers['profile-title'] ??
+          response.headers['content-disposition'] ?? '';
+      if (profileTitle.isNotEmpty) {
+        try {
+          name = utf8.decode(base64.decode(base64.normalize(profileTitle)));
+        } catch (_) {
+          final m = RegExp(r'filename[*]?=["\']?([^"\';\r\n]+)["\']?').firstMatch(profileTitle);
+          if (m != null) {
+            name = m.group(1)!.replaceAll(RegExp(r'\.(txt|conf|sub)$'), '');
+          }
+        }
+      }
+      if (name.isEmpty || name == url) name = _nameFromUrl(url);
+
+      // Parse body
+      String body = response.body.trim();
+      try { body = utf8.decode(base64.decode(base64.normalize(body))); } catch (_) {}
 
       final lines = body.split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
       int added = 0;
@@ -255,12 +327,34 @@ class VpnProvider extends ChangeNotifier {
       }
 
       if (added == 0) return 'Geçerli sunucu bulunamadı';
+
+      final autoUpdateHours = existingIdx >= 0 ? _subscriptions[existingIdx].autoUpdateHours : 1;
+      final updatedSub = SubscriptionInfo(
+        url: url,
+        name: name,
+        lastUpdated: DateTime.now(),
+        autoUpdateHours: autoUpdateHours,
+        upload: upload,
+        download: download,
+        total: total,
+        expireAt: expireAt,
+      );
+      if (existingIdx >= 0) {
+        _subscriptions[existingIdx] = updatedSub;
+      } else {
+        _subscriptions.add(updatedSub);
+      }
+
       return null;
     } on TimeoutException {
       return 'Bağlantı zaman aşımı (15s)';
     } catch (e) {
       return 'Hata: $e';
     }
+  }
+
+  String _nameFromUrl(String url) {
+    try { return Uri.parse(url).host; } catch (_) { return url; }
   }
 
   // ─── Connection ──────────────────────────────────────────────────────────
@@ -405,7 +499,7 @@ class VpnProvider extends ChangeNotifier {
     if (idx != -1) {
       _servers[idx] = _servers[idx].copyWith(isFavorite: !_servers[idx].isFavorite);
       if (_servers[idx].isCustom) _saveCustomServers();
-      if (_servers[idx].isFromSubscription) _saveSubscriptionServers();
+      if (_servers[idx].isFromSubscription) _saveSubscriptionData();
       notifyListeners();
     }
   }
@@ -495,7 +589,7 @@ class VpnProvider extends ChangeNotifier {
       _selectedServer = _servers.isNotEmpty ? _servers.first : null;
     }
     if (server.isCustom) _saveCustomServers();
-    if (server.isFromSubscription) _saveSubscriptionServers();
+    if (server.isFromSubscription) _saveSubscriptionData();
     notifyListeners();
   }
 
@@ -508,17 +602,10 @@ class VpnProvider extends ChangeNotifier {
         final raw = await VpnNativeService.getTrafficStats();
         final rx = raw['rx']!;
         final tx = raw['tx']!;
-
-        if (_baseRx < 0) {
-          _baseRx = rx; _baseTx = tx;
-          _lastRx = rx; _lastTx = tx;
-          return;
-        }
-
+        if (_baseRx < 0) { _baseRx = rx; _baseTx = tx; _lastRx = rx; _lastTx = tx; return; }
         final dlSpeed = (rx - _lastRx).clamp(0, 100 * 1024 * 1024).toDouble();
         final ulSpeed = (tx - _lastTx).clamp(0, 100 * 1024 * 1024).toDouble();
         _lastRx = rx; _lastTx = tx;
-
         _stats = VpnStats(
           downloadBytes: (rx - _baseRx).clamp(0, double.maxFinite.toInt()),
           uploadBytes: (tx - _baseTx).clamp(0, double.maxFinite.toInt()),
@@ -548,6 +635,7 @@ class VpnProvider extends ChangeNotifier {
   @override
   void dispose() {
     _stopTimers();
+    _autoUpdateTimer?.cancel();
     super.dispose();
   }
 }
