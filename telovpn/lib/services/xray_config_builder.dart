@@ -14,6 +14,7 @@ class XrayConfigBuilder {
     String? fingerprint,
     String? publicKey,
     String? shortId,
+    bool allowInsecure = false,
     int localPort = 10808,
   }) {
     final outbound = <String, dynamic>{
@@ -45,6 +46,7 @@ class XrayConfigBuilder {
         fingerprint: fingerprint,
         publicKey: publicKey,
         shortId: shortId,
+        allowInsecure: allowInsecure,
       ),
     };
     return _buildFullConfig(outbound, localPort);
@@ -61,6 +63,7 @@ class XrayConfigBuilder {
     String? sni,
     String? wsPath,
     String? wsHost,
+    bool allowInsecure = false,
     int localPort = 10808,
   }) {
     final outbound = <String, dynamic>{
@@ -87,6 +90,7 @@ class XrayConfigBuilder {
         sni: sni,
         wsPath: wsPath,
         wsHost: wsHost,
+        allowInsecure: allowInsecure,
       ),
     };
     return _buildFullConfig(outbound, localPort);
@@ -99,6 +103,7 @@ class XrayConfigBuilder {
     required String password,
     String? sni,
     String network = 'tcp',
+    bool allowInsecure = false,
     int localPort = 10808,
   }) {
     final outbound = <String, dynamic>{
@@ -117,6 +122,7 @@ class XrayConfigBuilder {
         network: network,
         security: 'tls',
         sni: sni ?? address,
+        allowInsecure: allowInsecure,
       ),
     };
     return _buildFullConfig(outbound, localPort);
@@ -159,6 +165,7 @@ class XrayConfigBuilder {
     String? fingerprint,
     String? publicKey,
     String? shortId,
+    bool allowInsecure = false,
   }) {
     final settings = <String, dynamic>{
       'network': network,
@@ -169,7 +176,7 @@ class XrayConfigBuilder {
     if (security == 'tls') {
       settings['tlsSettings'] = {
         'serverName': sni ?? '',
-        'allowInsecure': false,
+        'allowInsecure': allowInsecure,
         'fingerprint': fingerprint ?? 'chrome',
       };
     }
@@ -342,6 +349,7 @@ class XrayConfigBuilder {
     final fingerprint = params['fp'];
     final publicKey = params['pbk'];
     final shortId = params['sid'];
+    final allowInsecure = params['allowInsecure'] == '1' || params['allowInsecure'] == 'true';
 
     return buildVless(
       address: address,
@@ -355,6 +363,7 @@ class XrayConfigBuilder {
       fingerprint: fingerprint,
       publicKey: publicKey,
       shortId: shortId,
+      allowInsecure: allowInsecure,
     );
   }
 
@@ -373,17 +382,21 @@ class XrayConfigBuilder {
       sni: json['sni'] ?? json['host'],
       wsPath: json['path'],
       wsHost: json['host'],
+      allowInsecure: json['allowInsecure'] == true || json['allowInsecure'] == 1 || json['tls_allowInsecure'] == true,
     );
   }
 
   static Map<String, dynamic> _parseTrojan(String uri) {
     final parsed = Uri.parse(uri.replaceFirst('trojan://', 'https://'));
+    final allowInsecure = parsed.queryParameters['allowInsecure'] == '1' ||
+        parsed.queryParameters['allowInsecure'] == 'true';
     return buildTrojan(
       address: parsed.host,
       port: parsed.port,
       password: parsed.userInfo,
       sni: parsed.queryParameters['sni'] ?? parsed.host,
       network: parsed.queryParameters['type'] ?? 'tcp',
+      allowInsecure: allowInsecure,
     );
   }
 
