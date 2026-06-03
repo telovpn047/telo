@@ -186,12 +186,21 @@ class XrayConfigBuilder {
       'security': security,
     };
 
+    // For XHTTP over TCP, strip h3 from ALPN — H3 uses QUIC (UDP 443) which is
+    // commonly blocked. Servers that publish alpn=h3 almost always also serve
+    // XHTTP over H2/TCP on the same port.
+    List<String>? effectiveAlpn = alpn;
+    if (effectiveNetwork == 'xhttp' && effectiveAlpn != null) {
+      effectiveAlpn = effectiveAlpn.where((a) => a != 'h3').toList();
+      if (effectiveAlpn.isEmpty) effectiveAlpn = null;
+    }
+
     // TLS settings — allowInsecure removed in Xray 26.x
     if (security == 'tls') {
       settings['tlsSettings'] = {
         'serverName': sni ?? '',
         if (effectiveFp != null) 'fingerprint': effectiveFp,
-        if (alpn != null && alpn.isNotEmpty) 'alpn': alpn,
+        if (effectiveAlpn != null && effectiveAlpn.isNotEmpty) 'alpn': effectiveAlpn,
       };
     }
 
@@ -255,7 +264,7 @@ class XrayConfigBuilder {
       Map<String, dynamic> outbound, int localPort) {
     return {
       'log': {
-        'loglevel': 'warning',
+        'loglevel': 'info',
         'access': '',
         'error': '',
       },
