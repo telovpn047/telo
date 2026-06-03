@@ -1,5 +1,11 @@
 package main
 
+/*
+// Minimal JNI type definitions — avoids needing jni.h from NDK sysroot.
+typedef void*  JNIEnv;
+typedef void*  jclass;
+typedef int    jint;
+*/
 import "C"
 
 import (
