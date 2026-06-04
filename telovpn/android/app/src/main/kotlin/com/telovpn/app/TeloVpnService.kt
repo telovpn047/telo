@@ -127,6 +127,13 @@ class TeloVpnService : VpnService() {
     private suspend fun startXrayCore(configPath: String): Boolean {
         return withContext(Dispatchers.IO) {
             try {
+                // Kill any lingering Xray from a previous session before starting a new one.
+                // This prevents "address already in use" on port 10808 during rapid restarts.
+                xrayProcess?.destroyForcibly()
+                xrayProcess = null
+                // Brief wait for the OS to reclaim the port after the kill signal.
+                delay(150)
+
                 val xrayBin = nativeBinary("libxray.so")
                 if (xrayBin == null || !xrayBin.exists()) {
                     log("Xray binary bulunamadı (nativeLibraryDir): libxray.so")
@@ -302,22 +309,21 @@ class TeloVpnService : VpnService() {
         isRunning = false
         log("VPN durduruluyor...")
         try {
-            // Close TUN fd FIRST — this unblocks Go goroutines blocked in Read(fd).
-            // If we call engine.Stop() first, goroutines stay blocked until fd is closed
-            // anyway, but there's a window where they may access a reused fd → SIGSEGV.
+            // Kill Xray FIRST — releases port 10808 immediately so a subsequent
+            // start attempt doesn't fail with "address already in use".
+            xrayProcess?.destroyForcibly()
+            xrayProcess = null
+
+            // Close TUN fd — unblocks Go goroutines blocked in Read(fd).
             val iface = vpnInterface
             vpnInterface = null
             try { iface?.close() } catch (_: Exception) {}
 
             // Give goroutines a moment to process the fd-close error and begin exiting.
-            // 400ms is more reliable on slower devices than 200ms.
             delay(400)
 
-            // Now stop tun2socks — goroutines are already unwinding
+            // Now stop tun2socks — goroutines are already unwinding.
             try { VpnCore.stopTun2Socks() } catch (_: Exception) {}
-
-            xrayProcess?.destroyForcibly()
-            xrayProcess = null
         } catch (e: Exception) {
             log("Durdurma hatası: ${e.message}")
         }
@@ -363,14 +369,13 @@ class TeloVpnService : VpnService() {
 
     override fun onDestroy() {
         isRunning = false
-        // Close fd BEFORE cancelling scope so stopVpn()'s delay(200) coroutine
-        // (if still running) has already unblocked the Go goroutines.
+        // Kill Xray first to release port 10808 immediately.
+        xrayProcess?.destroyForcibly()
+        xrayProcess = null
         val iface = vpnInterface
         vpnInterface = null
         try { iface?.close() } catch (_: Exception) {}
         try { VpnCore.stopTun2Socks() } catch (_: Exception) {}
-        xrayProcess?.destroyForcibly()
-        xrayProcess = null
         serviceScope.cancel()
         super.onDestroy()
     }
